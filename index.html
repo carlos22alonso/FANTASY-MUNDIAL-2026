@@ -685,6 +685,13 @@ body::after{
   </div>
 </div>
 
+<div id="pgLive" style="display:none">
+  <div style="padding:16px">
+    <div class="sec-lbl">En Juego · Predicciones</div>
+    <div id="liveList"></div>
+  </div>
+</div>
+
 <div id="pgRank" style="display:none">
   <div class="rank-wrap">
     <div class="sec-lbl">Clasificación</div>
@@ -796,6 +803,11 @@ body::after{
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><polyline points="12,6 12,12 16,14"/></svg>
     Historial
   </button>
+  <button class="nb" id="nbLive" onclick="showPage('live')" style="position:relative">
+    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="12" cy="12" r="10"/><circle cx="12" cy="12" r="3"/></svg>
+    En Juego
+    <span class="nb-badge" id="liveBadge" style="background:var(--green);box-shadow:0 0 8px rgba(0,204,102,.5)"></span>
+  </button>
   <button class="nb" id="nbRank" onclick="showPage('rank')">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><polyline points="23,6 13.5,15.5 8.5,10.5 1,18"/><polyline points="17,6 23,6 23,12"/></svg>
     Ranking
@@ -856,6 +868,11 @@ body::after{
         <input class="gol-i" type="text" id="mGol" placeholder="Nombre del jugador...">
       </div>
       <button class="btn-save" id="mSaveBtn" onclick="savePred()">Guardar predicción</button>
+      <button id="mClearBtn" onclick="clearPred()" style="display:none;width:100%;padding:10px;
+        background:none;border:1px solid rgba(229,62,62,.3);border-radius:10px;color:#FC8181;
+        font-family:'Barlow',sans-serif;font-size:13px;cursor:pointer;margin-top:6px;transition:all .2s">
+        🗑 Borrar predicción
+      </button>
       <div class="save-msg" id="savedOk" style="display:none"></div>
     </div>
   </div>
@@ -960,13 +977,13 @@ function flagImg(team, cls='', phCls='') {
 // ════════════════════════════════════════════════════════════════════
 const PLAYERS = [
   "Vardock","Roti","JR","Doley","Muerto JR","Borgogno",
-  "Gucci","XeskoPA","Vera","Eric","Belu","MG","Txolo","Romy","Jorquera","Sayes","Noah","Pau Lopez","Largo","Lete"
+  "Gucci","XeskoPA","Vera","Eric","Belu","MG","Txolo","Ros","Jorquera","Sayes","Noah","Pau Lopez","Largo","Lete"
 ];
 const PLAYER_PINS = {
   "Vardock":"2951","Roti":"6234","JR":"9233","Doley":"9385",
   "Muerto JR":"2681","Borgogno":"4658","Gucci":"7891","XeskoPA":"9975",
   "Vera":"9042","Eric":"8226","Belu":"4931","MG":"1041",
-  "Txolo":"2322","Romy":"2814","Jorquera":"5706","Sayes":"2606",
+  "Txolo":"2322","Ros":"2814","Jorquera":"5706","Sayes":"2606",
   "Noah":"8367","Pau Lopez":"1188","Largo":"2824","Lete":"5140"
 };
 const MATCHES = [
@@ -1079,7 +1096,7 @@ const MATCHES = [
 // ════════════════════════════════════════════════════════════════════
 // ESTADO
 // ════════════════════════════════════════════════════════════════════
-const PAGES = ['home','all','history','rank','admin'];
+const PAGES = ['home','all','history','live','rank','admin'];
 let player='', isAdmin=false, allTab='open', curPage='home', adminTab='res';
 let modalMid=null, cdTimer=null;
 let dbPreds={}, dbResults={}, dbBonus={}, dbClasif={};
@@ -1354,6 +1371,8 @@ function renderAll(){
   if(curPage==='all') renderAllPreds();
   if(curPage==='rank') renderRanking();
   if(curPage==='history') renderHistory();
+  if(curPage==='live') renderLive();
+  updateLiveBadge();
 }
 
 function updateUrgentBadge(){
@@ -1574,6 +1593,80 @@ function renderHistory(){
   cont.innerHTML=html;
 }
 
+// ── EN JUEGO ─────────────────────────────────────────────────────
+function renderLive(){
+  const cont=document.getElementById('liveList');
+  // Solo partidos EN DIRECTO ahora mismo
+  const ordered=MATCHES.filter(m=>mStatus(m)==='live');
+  if(!ordered.length){
+    cont.innerHTML='<div class="empty" style="line-height:2">⚽ No hay ningún partido en juego ahora mismo.<br><span style="font-size:12px;color:var(--gray)">Las predicciones de todos aparecerán aquí en cuanto empiece un partido.</span></div>';
+    return;
+  }
+  let html='';
+  html+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+    <span style="width:8px;height:8px;border-radius:50%;background:var(--green2);display:inline-block;animation:cdpulse 1s ease infinite"></span>
+    <span style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--green2)">${ordered.length} partido${ordered.length>1?'s':''} en directo</span>
+  </div>`;
+  ordered.forEach(m=>{
+    const isLive=true;
+    const res=dbResults[m.id];
+    const rHome=resolveTeam(m,'home'),rAway=resolveTeam(m,'away');
+    html+=`<div class="hist-match-card" style="margin-bottom:12px;${isLive?'border-color:rgba(0,204,102,.35);':'' }">
+      <div class="hist-header">
+        <div class="hist-teams">
+          ${flagImg(rHome)} <div class="hist-team-name" style="margin:0 4px">${rHome}</div>
+          <div class="hist-vs">vs</div>
+          ${flagImg(rAway)} <div class="hist-team-name" style="margin:0 4px">${rAway}</div>
+        </div>
+        <div style="text-align:right">
+          ${isLive
+            ? `<span style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--green2);animation:cdpulse 1.5s ease infinite">● EN DIRECTO</span>`
+            : res
+              ? `<div class="hist-result">${res.rL}–${res.rV}</div>`
+              : `<div style="font-size:11px;color:var(--gray)">Sin resultado</div>`
+          }
+          <div class="hist-meta">${m.phase} · ${m.time}</div>
+        </div>
+      </div>
+      <div class="hist-preds">`;
+    // Sort: current player first, then rest
+    const sorted=[...PLAYERS].sort((a,b)=>a===player?-1:b===player?1:0);
+    sorted.forEach(p=>{
+      const pred=(dbPreds[p]||{})[m.id];
+      const pts=res?calcPts(pred,res):null;
+      const isMe=p===player;
+      let ptsClass='pts-gray',predColor='var(--gray2)';
+      if(pred&&res){
+        if(pts>=5){ptsClass='pts-gold';predColor='var(--gold)';}
+        else if(pts>=2){ptsClass='pts-green';predColor='var(--green2)';}
+        else if(pts===1){ptsClass='pts-silver';predColor='var(--silver)';}
+        else{ptsClass='pts-red';predColor='#FC8181';}
+      }
+      html+=`<div class="hist-pred-row${isMe?' me':''}">
+        <div class="hist-pname" style="color:${isMe?'#FB923C':'var(--white)'}">${p}</div>
+        <div class="hist-right">
+          ${pred
+            ? `<div class="hist-pred-score" style="color:${predColor}">${pred.predL}–${pred.predV}</div>
+               ${pred.gol?`<div style="font-size:10px;color:var(--gray);max-width:65px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pred.gol}</div>`:''}`
+            : `<div style="font-size:11px;color:var(--gray)">—</div>`
+          }
+          ${res?`<div class="hist-pts ${ptsClass}">${pred?`+${pts}`:'0'}</div>`:''}
+        </div>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  });
+  cont.innerHTML=html;
+}
+
+function updateLiveBadge(){
+  const badge=document.getElementById('liveBadge');
+  if(!badge) return;
+  const liveCount=MATCHES.filter(m=>mStatus(m)==='live').length;
+  badge.style.display=liveCount>0?'block':'none';
+  badge.textContent=liveCount;
+}
+
 // ── RANKING ──────────────────────────────────────────────────────
 function renderRanking(){
   const medals=['🥇','🥈','🥉'];
@@ -1630,6 +1723,10 @@ function openModal(mid){
   document.getElementById('mPL').disabled=closed;
   document.getElementById('mPV').disabled=closed;
   document.getElementById('mGol').disabled=closed;
+  // Show clear button only if pred exists and match is still open
+  const clearBtn=document.getElementById('mClearBtn');
+  const hasPred=!!(dbPreds[player]&&dbPreds[player][mid]);
+  clearBtn.style.display=(hasPred&&!closed)?'block':'none';
   document.getElementById('modalOv').classList.add('open');
   // Timer de cierre automático
   if(window._modalTimer) clearInterval(window._modalTimer);
@@ -1683,6 +1780,26 @@ async function savePred(){
   setTimeout(()=>{document.getElementById('modalOv').classList.remove('open');modalMid=null;},1100);
 }
 
+async function clearPred(){
+  if(!player||!modalMid) return;
+  const m=MATCHES.find(x=>x.id===modalMid);
+  if(!m||!isOpen(m)){showToast('No se puede borrar — partido ya iniciado');return;}
+  if(!dbPreds[player]||!dbPreds[player][modalMid]){showToast('No hay predicción que borrar');return;}
+  delete dbPreds[player][modalMid];
+  if(window.FB_READY) await window.FB.update(fbPath('predictions/'+player),{[modalMid]:null});
+  else localSet('fm_pred_'+player,dbPreds[player]);
+  document.getElementById('mPL').value='';
+  document.getElementById('mPV').value='';
+  document.getElementById('mGol').value='';
+  const ok=document.getElementById('savedOk');
+  ok.style.display='block';ok.style.color='var(--gray2)';ok.textContent='✓ Predicción eliminada';
+  document.getElementById('mSaveBtn').textContent='Guardar predicción';
+  document.getElementById('mSaveBtn').disabled=false;
+  showToast('Predicción eliminada');
+  renderAll();
+  setTimeout(()=>{document.getElementById('modalOv').classList.remove('open');modalMid=null;},900);
+}
+
 // ── ADMIN ────────────────────────────────────────────────────────
 function onAdminMatch(){
   const mid=parseInt(document.getElementById('adminMatchSel').value);
@@ -1722,6 +1839,8 @@ function showPage(p){
   if(p==='all') renderAllPreds();
   if(p==='rank') renderRanking();
   if(p==='history') renderHistory();
+  if(p==='live') renderLive();
+  if(p==='home'){renderNext();renderToday();}
 }
 
 // ── SWIPE ────────────────────────────────────────────────────────
@@ -1734,8 +1853,13 @@ document.addEventListener('touchend',e=>{
   if(document.getElementById('playerPinOv').style.display!=='none') return;
   if(document.getElementById('adminPinOv').style.display!=='none') return;
   const idx=PAGES.indexOf(curPage);
-  if(dx<0&&idx<PAGES.length-1){const next=PAGES[idx+1];if(next==='admin'&&!isAdmin){goAdmin();return;}showPage(next);}
-  else if(dx>0&&idx>0) showPage(PAGES[idx-1]);
+  if(dx<0&&idx<PAGES.length-1){
+    const next=PAGES[idx+1];
+    if(next==='admin'&&!isAdmin){goAdmin();return;}
+    showPage(next);
+  } else if(dx>0&&idx>0) {
+    showPage(PAGES[idx-1]);
+  }
 },{passive:true});
 
 // ── UTILS ────────────────────────────────────────────────────────
