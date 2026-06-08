@@ -706,7 +706,7 @@ body::after{
     <!-- Sub-tabs admin -->
     <div class="tabs" style="margin-bottom:16px">
       <button class="tab on" id="atab-res"    onclick="setAdminTab('res')">Resultados</button>
-      <button class="tab"   id="atab-clasif"  onclick="setAdminTab('clasif')">Clasificatoria</button>
+      <button class="tab"   id="atab-clasif"  onclick="setAdminTab('clasif')">Cuadro Final</button>
       <button class="tab"   id="atab-pts"     onclick="setAdminTab('pts')">Puntos</button>
     </div>
 
@@ -735,29 +735,11 @@ body::after{
       <div class="info-box">Al guardar un resultado los puntos se recalculan para todos automáticamente.</div>
     </div>
 
-    <!-- TAB Clasificatoria -->
+    <!-- TAB Cuadro Final -->
     <div id="admin-clasif" style="display:none">
-      <div class="admin-card">
-        <div class="admin-title">Equipos fase clasificatoria</div>
-        <div class="res-lbl" style="margin-bottom:8px">Selecciona el partido a actualizar</div>
-        <select class="res-sel" id="clasifMatchSel" onchange="onClasifMatch()">
-          <option value="">— Selecciona partido —</option>
-        </select>
-        <div id="clasifMatchInfo" style="display:none;margin-top:12px">
-          <div style="font-size:11px;color:var(--gold);letter-spacing:1px;text-transform:uppercase;margin-bottom:8px" id="clasifMatchMeta"></div>
-          <div class="res-lbl">Equipo local</div>
-          <select class="res-sel" id="clasifHome" style="margin-bottom:8px">
-            <option value="">— Selecciona equipo —</option>
-          </select>
-          <div class="res-lbl">Equipo visitante</div>
-          <select class="res-sel" id="clasifAway">
-            <option value="">— Selecciona equipo —</option>
-          </select>
-        </div>
-        <button class="btn-blue" onclick="saveClasif()" style="margin-top:12px">Guardar equipos</button>
-      </div>
-      <div class="info-box">
-        Los nombres reales sustituyen los placeholders (1º Gr.E, G.R32-73/74...) en todas las vistas. Una vez guardados todos los jugadores los ven actualizados.
+      <div id="bracketList"></div>
+      <div class="info-box" style="margin-top:8px">
+        Selecciona los equipos de cada partido. Al guardar, el nombre real aparece en predicciones, historial y en juego para todos los jugadores.
       </div>
     </div>
 
@@ -1169,13 +1151,7 @@ function init(){
   PLAYERS.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;sel.appendChild(o);});
   const asel=document.getElementById('adminMatchSel');
   MATCHES.forEach(m=>{const o=document.createElement('option');o.value=m.id;o.textContent=`#${m.id} ${m.home} vs ${m.away} (${m.date} ${m.time})`;asel.appendChild(o);});
-  // Clasificatoria: solo partidos eliminatorios
-  const csel=document.getElementById('clasifMatchSel');
-  MATCHES.filter(m=>m.group==='-').forEach(m=>{
-    const o=document.createElement('option');o.value=m.id;
-    o.textContent=`#${m.id} ${m.home} vs ${m.away} (${m.date})`;
-    csel.appendChild(o);
-  });
+  // Bracket rendered dynamically via renderBracket()
   // Bonus player selector
   const bsel=document.getElementById('bonusPlayerSel');
   PLAYERS.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;bsel.appendChild(o);});
@@ -1275,55 +1251,84 @@ function setAdminTab(t){
     if(panel) panel.style.display=k===t?'block':'none';
   });
   if(t==='pts') renderBonusList();
+  if(t==='clasif') renderBracket();
 }
 
-// ── CLASIFICATORIA ────────────────────────────────────────────
-function onClasifMatch(){
-  const mid=parseInt(document.getElementById('clasifMatchSel').value);
-  const m=MATCHES.find(x=>x.id===mid);
-  if(!m){document.getElementById('clasifMatchInfo').style.display='none';return;}
+// ── CUADRO FINAL ───────────────────────────────────────────────
+const ALL_TEAMS = Object.values(GROUP_TEAMS).flat().sort();
 
-  const curHome=dbClasif[mid+'_home']||'';
-  const curAway=dbClasif[mid+'_away']||'';
-  document.getElementById('clasifMatchMeta').textContent=`${m.phase} · ${m.date} · ${m.time}`;
+function renderBracket(){
+  const cont = document.getElementById('bracketList');
+  if(!cont) return;
 
-  // Poblar selectores con equipos posibles
-  populateClasifSel('clasifHome', mid, 'home', curHome);
-  populateClasifSel('clasifAway', mid, 'away', curAway);
-  document.getElementById('clasifMatchInfo').style.display='block';
-}
+  const phases = [
+    {label:'Ronda 32 — Dieciseisavos', ids:[73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88]},
+    {label:'Octavos de Final', ids:[89,90,91,92,93,94,95,96]},
+    {label:'Cuartos de Final', ids:[97,98,99,100]},
+    {label:'Semifinales', ids:[101,102]},
+    {label:'3er y 4º Puesto', ids:[103]},
+    {label:'Final', ids:[104]},
+  ];
 
-function populateClasifSel(selId, mid, side, current) {
-  const sel = document.getElementById(selId);
-  sel.innerHTML = '<option value="">— Selecciona equipo —</option>';
+  let html = '';
+  phases.forEach(ph => {
+    html += `<div style="margin-bottom:16px">
+      <div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+        color:var(--gold);padding:6px 0;margin-bottom:8px;
+        border-bottom:1px solid rgba(255,215,0,.2)">${ph.label}</div>`;
 
-  const pool = getPoolTeams(mid, side);
+    ph.ids.forEach(mid => {
+      const m = MATCHES.find(x=>x.id===mid);
+      if(!m) return;
+      const curHome = dbClasif[mid+'_home'] || '';
+      const curAway = dbClasif[mid+'_away'] || '';
+      const dateStr = new Date(m.date+'T12:00:00Z')
+        .toLocaleDateString('es-ES',{timeZone:'Europe/Madrid',day:'numeric',month:'short'});
 
-  if (pool && pool.length > 0) {
-    // Ronda 32: hay pool definido
-    pool.forEach(team => {
-      const o = document.createElement('option');
-      o.value = team; o.textContent = flagImg(team) + ' ' + team;
-      if (team === current) o.selected = true;
-      sel.appendChild(o);
+      html += `<div style="background:var(--card);border:1px solid var(--bdr);
+        border-radius:10px;padding:10px 12px;margin-bottom:8px">
+        <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px">
+          <span style="font-size:11px;font-weight:600;color:var(--gray2)">#${mid}</span>
+          <span style="font-size:11px;color:var(--gold);font-family:'DM Mono',monospace">${dateStr} · ${m.time}</span>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr 20px 1fr;gap:4px;align-items:center">
+          <select class="res-sel" id="bh_${mid}" style="padding:7px 8px;font-size:12px">
+            <option value="">— Local —</option>
+            ${ALL_TEAMS.map(t=>`<option value="${t}"${t===curHome?' selected':''}>${flagImg(t)} ${t}</option>`).join('')}
+          </select>
+          <div style="text-align:center;font-size:11px;color:var(--gray)">vs</div>
+          <select class="res-sel" id="ba_${mid}" style="padding:7px 8px;font-size:12px">
+            <option value="">— Visitante —</option>
+            ${ALL_TEAMS.map(t=>`<option value="${t}"${t===curAway?' selected':''}>${flagImg(t)} ${t}</option>`).join('')}
+          </select>
+        </div>
+        <div style="display:grid;grid-template-columns:1fr auto;gap:6px;margin-top:8px">
+          <button onclick="saveBracketMatch(${mid})"
+            style="padding:7px;
+            background:linear-gradient(135deg,var(--red),#990000);
+            border:none;border-radius:8px;color:#fff;
+            font-family:'Barlow',sans-serif;font-size:12px;font-weight:600;cursor:pointer">
+            Guardar
+          </button>
+          <button onclick="clearBracketMatch(${mid})"
+            style="padding:7px 10px;
+            background:none;border:1px solid rgba(229,62,62,.3);
+            border-radius:8px;color:#FC8181;
+            font-family:'Barlow',sans-serif;font-size:12px;cursor:pointer"
+            title="Limpiar equipos">
+            🗑
+          </button>
+        </div>
+      </div>`;
     });
-  } else {
-    // R16 en adelante: cualquier equipo del torneo
-    const allTeams = Object.values(GROUP_TEAMS).flat().sort();
-    allTeams.forEach(team => {
-      const o = document.createElement('option');
-      o.value = team; o.textContent = flagImg(team) + ' ' + team;
-      if (team === current) o.selected = true;
-      sel.appendChild(o);
-    });
-  }
+    html += '</div>';
+  });
+  cont.innerHTML = html;
 }
 
-async function saveClasif(){
-  const mid=parseInt(document.getElementById('clasifMatchSel').value);
-  if(!mid){showToast('Selecciona un partido');return;}
-  const home=document.getElementById('clasifHome').value;
-  const away=document.getElementById('clasifAway').value;
+async function saveBracketMatch(mid){
+  const home = document.getElementById('bh_'+mid)?.value;
+  const away = document.getElementById('ba_'+mid)?.value;
   if(!home||!away){showToast('Selecciona los dos equipos');return;}
   dbClasif[mid+'_home']=home;
   dbClasif[mid+'_away']=away;
@@ -1332,9 +1337,31 @@ async function saveClasif(){
   } else {
     localSet('fm_clasif',dbClasif);
   }
-  showToast('Equipos guardados ✓');
+  showToast(`✓ Partido #${mid} guardado`);
   renderAll();
 }
+
+async function clearBracketMatch(mid){
+  delete dbClasif[mid+'_home'];
+  delete dbClasif[mid+'_away'];
+  if(window.FB_READY){
+    await window.FB.update(fbPath('clasif'),{[mid+'_home']:null,[mid+'_away']:null});
+  } else {
+    localSet('fm_clasif',dbClasif);
+  }
+  // Reset selects visually
+  const bh=document.getElementById('bh_'+mid);
+  const ba=document.getElementById('ba_'+mid);
+  if(bh) bh.value='';
+  if(ba) ba.value='';
+  showToast(`✓ Partido #${mid} limpiado`);
+  renderAll();
+}
+
+// Legacy stubs (no longer used but kept to avoid errors)
+function onClasifMatch(){}
+function populateClasifSel(){}
+async function saveClasif(){ showToast('Usa el botón Guardar de cada partido'); }
 
 // ── BONUS PUNTOS ──────────────────────────────────────────────
 async function saveBonus(){
