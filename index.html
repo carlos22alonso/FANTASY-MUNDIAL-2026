@@ -21,7 +21,7 @@
   //   databaseURL: "https://fantasy-mundial-2026-default-rtdb.europe-west1.firebasedatabase.app",
   //   projectId: "fantasy-mundial-2026", ...
   // };
-  window.ADMIN_PIN = "1907";
+  window.ADMIN_PIN = "2026";
   window.FIREBASE_CONFIG = FIREBASE_CONFIG;
   if (FIREBASE_CONFIG) {
     const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
@@ -389,7 +389,7 @@ body::after{
 .rank-wrap{padding:16px}
 .rk-row{
   display:grid;grid-template-columns:28px 28px 1fr auto;
-  align-items:center;gap:10px;padding:13px 16px;
+  align-items:start;gap:10px;padding:13px 16px;
   border-radius:12px;margin-bottom:8px;border:1px solid rgba(79,195,247,.10);
   background:var(--card);transition:all .2s;
 }
@@ -639,6 +639,9 @@ body::after{
     </div>
   </div>
 
+  <!-- MURO LOGROS — visible antes de login -->
+  <div id="logrosMuroWrap" style="display:none"></div>
+
   <!-- sin sesión -->
   <div class="login-bar" id="loginWrap">
     <select class="login-select" id="loginSel">
@@ -681,6 +684,18 @@ body::after{
 <div id="pgHistory" style="display:none">
   <div class="hist-wrap">
     <div class="sec-lbl">Historial de resultados</div>
+    <!-- FILTROS -->
+    <div style="display:flex;flex-direction:column;gap:8px;margin-bottom:14px">
+      <select class="res-sel" id="histFilterDay" onchange="renderHistory()" style="font-size:13px;padding:8px 12px">
+        <option value="">📅 Todas las jornadas</option>
+      </select>
+      <select class="res-sel" id="histFilterMatch" onchange="renderHistory()" style="font-size:13px;padding:8px 12px">
+        <option value="">⚽ Todos los partidos</option>
+      </select>
+      <select class="res-sel" id="histFilterPlayer" onchange="renderHistory()" style="font-size:13px;padding:8px 12px">
+        <option value="">👤 Todos los jugadores</option>
+      </select>
+    </div>
     <div id="historyList"></div>
   </div>
 </div>
@@ -726,8 +741,8 @@ body::after{
             <input class="ri" type="number" min="0" max="20" id="adminRV" placeholder="0">
           </div>
           <div style="margin-top:10px">
-            <div class="res-lbl">Goleador / MVP real</div>
-            <input class="gi" type="text" id="adminGol" placeholder="Nombre del jugador...">
+            <div class="res-lbl">Goleador real</div>
+            <input class="gi" type="text" id="adminGol" placeholder="Nombre del goleador...">
           </div>
         </div>
         <button class="btn-blue" onclick="saveResult()">Guardar resultado</button>
@@ -846,7 +861,7 @@ body::after{
         </div>
       </div>
       <div>
-        <div class="gol-lbl">Goleador / MVP del partido</div>
+        <div class="gol-lbl">Goleador del partido</div>
         <input class="gol-i" type="text" id="mGol" placeholder="Nombre del jugador...">
       </div>
       <button class="btn-save" id="mSaveBtn" onclick="savePred()">Guardar predicción</button>
@@ -1097,6 +1112,310 @@ let dbPreds={}, dbResults={}, dbBonus={}, dbClasif={};
 function fbPath(p){ return window.FB.ref(window.FB.db, p); }
 function localGet(k){ try{const v=localStorage.getItem(k);return v?JSON.parse(v):null;}catch(e){return null;} }
 function localSet(k,v){ try{localStorage.setItem(k,JSON.stringify(v));}catch(e){} }
+
+
+// ════════════════════════════════════════════════════════════════════
+// SISTEMA DE LOGROS
+// ════════════════════════════════════════════════════════════════════
+
+const LOGROS_DEF = [
+  // BUENOS
+  {id:'mvp',        emoji:'🚀', nombre:'MVP',              desc:'Mejor puntuación de la jornada (único)',                tipo:'bueno'},
+  {id:'perfecto',   emoji:'💎', nombre:'Perfecto',         desc:'Resultado exacto + goleador en el mismo partido',       tipo:'bueno'},
+  {id:'maquina',    emoji:'⚡', nombre:'Máquina',          desc:'4+ resultados exactos en la jornada',                  tipo:'bueno'},
+  {id:'pistolero',  emoji:'🎯', nombre:'Pistolero',        desc:'Aciertas el goleador 2+ veces en la jornada',          tipo:'bueno'},
+  {id:'resucitado', emoji:'📈', nombre:'Resucitado',       desc:'Subes 5+ puestos en el ranking en la jornada',         tipo:'bueno'},
+  {id:'ojolince',   emoji:'💡', nombre:'Ojo de lince',     desc:'Aciertas ganador cuando solo 3 o menos lo predijeron', tipo:'bueno'},
+  // MALOS
+  {id:'inutil',     emoji:'💤', nombre:'Inútil',           desc:'No predices ningún partido de la jornada',             tipo:'malo'},
+  {id:'ciego',      emoji:'🙈', nombre:'Ciego',            desc:'Fallas todos los partidos por 3+ goles de diferencia', tipo:'malo'},
+  {id:'mono',       emoji:'🎲', nombre:'Mono con dardos',  desc:'No aciertas ni un ganador en la jornada (mín. 3 partidos)', tipo:'malo'},
+  {id:'caidalibre', emoji:'📉', nombre:'Caída libre',      desc:'Bajas 5+ puestos en el ranking en la jornada',         tipo:'malo'},
+  {id:'desaparecido',emoji:'🫠',nombre:'Desaparecido',     desc:'2 jornadas seguidas sin predecir ningún partido',      tipo:'malo'},
+  {id:'errorbuque', emoji:'🤦', nombre:'Error de bulto',   desc:'Predices ganador del equipo que pierde por 4+ goles',  tipo:'malo'},
+  // ESPECIAL
+  {id:'leyva',      emoji:'🤦', nombre:'Txuri-urdin',      desc:'0 puntos esta jornada. Ves el fútbol como el Leyva, de espaldas.', tipo:'malo'},
+];
+
+// Obtener fechas únicas con partidos terminados y con resultado
+function getCompletedDays() {
+  const datesWithResults = [...new Set(
+    MATCHES.filter(m => dbResults[m.id]).map(m => m.date)
+  )].sort();
+  // Una jornada está completa cuando TODOS sus partidos tienen resultado
+  return datesWithResults.filter(date => {
+    const dayMatches = MATCHES.filter(m => m.date === date);
+    return dayMatches.every(m => dbResults[m.id]);
+  });
+}
+
+function getLastCompletedDay() {
+  const days = getCompletedDays();
+  return days.length ? days[days.length - 1] : null;
+}
+
+function getPrevRankingBeforeDay(date) {
+  // Calcular ranking SIN los partidos del día dado
+  const dayMatchIds = new Set(MATCHES.filter(m => m.date === date).map(m => m.id));
+  return PLAYERS.map(p => {
+    const pts = Object.keys(dbPreds[p]||{})
+      .filter(mid => !dayMatchIds.has(parseInt(mid)))
+      .reduce((s, mid) => s + calcPts(dbPreds[p][mid], dbResults[mid]), 0)
+      + (dbBonus[p]||0);
+    return {name:p, pts};
+  }).sort((a,b) => b.pts - a.pts).map((x,i) => ({...x, pos:i+1}));
+}
+
+function calcLogrosForDay(date) {
+  const dayMatches = MATCHES.filter(m => m.date === date && dbResults[m.id]);
+  if (!dayMatches.length) return {};
+  const dayMatchIds = dayMatches.map(m => m.id);
+  const n = dayMatchIds.length; // partidos de la jornada
+
+  // Stats por jugador
+  const jornada = PLAYERS.map(p => {
+    const preds = dbPreds[p] || {};
+    const pts = dayMatchIds.reduce((s,mid) => s + calcPts(preds[mid], dbResults[mid]), 0);
+    const predCount = dayMatchIds.filter(mid => preds[mid]).length;
+
+    const exactos = dayMatchIds.filter(mid => {
+      const pr=preds[mid], res=dbResults[mid];
+      return pr&&res&&pr.predL===res.rL&&pr.predV===res.rV;
+    }).length;
+
+    const goleadores = dayMatchIds.filter(mid => {
+      const pr=preds[mid], res=dbResults[mid];
+      return pr&&res&&pr.gol&&res.gol&&pr.gol.trim().toLowerCase()===res.gol.trim().toLowerCase();
+    }).length;
+
+    const failBy3 = dayMatchIds.filter(mid => {
+      const pr=preds[mid], res=dbResults[mid];
+      if(!pr||!res) return false;
+      return Math.abs((pr.predL+pr.predV)-(res.rL+res.rV)) >= 3;
+    }).length;
+
+    const aciertoGanador = dayMatchIds.filter(mid => {
+      const pr=preds[mid], res=dbResults[mid];
+      if(!pr||!res) return false;
+      return Math.sign(pr.predL-pr.predV)===Math.sign(res.rL-res.rV);
+    }).length;
+
+    const wrongWinner4 = dayMatchIds.some(mid => {
+      const pr=preds[mid], res=dbResults[mid];
+      if(!pr||!res) return false;
+      const predSign=Math.sign(pr.predL-pr.predV);
+      const resSign=Math.sign(res.rL-res.rV);
+      return predSign!==resSign && Math.abs(res.rL-res.rV)>=4;
+    });
+
+    return {name:p, pts, predCount, exactos, goleadores, failBy3, aciertoGanador, wrongWinner4};
+  });
+
+  // Ranking previo para cambios de posición
+  const dayMatchIdSet = new Set(dayMatchIds);
+  const prevRank = PLAYERS.map(p => {
+    const pts = Object.keys(dbPreds[p]||{})
+      .filter(mid => !dayMatchIdSet.has(parseInt(mid)))
+      .reduce((s,mid) => s+calcPts(dbPreds[p][mid],dbResults[mid]),0)+(dbBonus[p]||0);
+    return {name:p,pts};
+  }).sort((a,b)=>b.pts-a.pts).map((x,i)=>({...x,pos:i+1}));
+
+  const currRank = PLAYERS.map(p=>({name:p,pts:playerPts(p)}))
+    .sort((a,b)=>b.pts-a.pts).map((x,i)=>({...x,pos:i+1}));
+
+  const posChange = {};
+  PLAYERS.forEach(p=>{
+    const prev=prevRank.find(x=>x.name===p)?.pos||20;
+    const curr=currRank.find(x=>x.name===p)?.pos||20;
+    posChange[p]=prev-curr;
+  });
+
+  const result = {};
+
+  // MVP — único mejor de la jornada
+  const maxPts = Math.max(...jornada.map(j=>j.pts));
+  const mvpPlayers = jornada.filter(j=>j.pts===maxPts&&maxPts>0);
+
+  jornada.forEach(j => {
+    const logros = [];
+
+    // ── BUENOS ──────────────────────────────────────────────────
+    // MVP: único con la mejor puntuación
+    if (j.pts===maxPts && maxPts>0 && mvpPlayers.length===1) logros.push('mvp');
+
+    // Perfecto: exacto + goleador en mismo partido
+    const tienePerfecto = dayMatchIds.some(mid => {
+      const pr=(dbPreds[j.name]||{})[mid], res=dbResults[mid];
+      if(!pr||!res) return false;
+      return pr.predL===res.rL&&pr.predV===res.rV&&pr.gol&&res.gol&&
+        pr.gol.trim().toLowerCase()===res.gol.trim().toLowerCase();
+    });
+    if (tienePerfecto) logros.push('perfecto');
+
+    // Máquina: 4+ exactos (requiere jornada con ≥4 partidos)
+    if (n >= 4 && j.exactos >= 4) logros.push('maquina');
+
+    // Pistolero: acierta goleador 2+ veces en la jornada
+    if (j.goleadores >= 2) logros.push('pistolero');
+
+    // Resucitado: sube 5+ puestos
+    if (posChange[j.name] >= 5) logros.push('resucitado');
+
+    // Ojo de lince: acierta ganador que solo ≤3 predijeron
+    const sorpresa = dayMatchIds.some(mid => {
+      const pr=(dbPreds[j.name]||{})[mid], res=dbResults[mid];
+      if(!pr||!res) return false;
+      const resSign=Math.sign(res.rL-res.rV);
+      if(Math.sign(pr.predL-pr.predV)!==resSign) return false;
+      const nAcertaron=PLAYERS.filter(p=>{
+        const pp=(dbPreds[p]||{})[mid];
+        return pp&&Math.sign(pp.predL-pp.predV)===resSign;
+      }).length;
+      return nAcertaron<=3;
+    });
+    if (sorpresa) logros.push('ojolince');
+
+    // ── MALOS ───────────────────────────────────────────────────
+    // Inútil: no predice ningún partido
+    if (j.predCount===0) {
+      logros.push('inutil');
+    } else {
+      // Ciego: falla TODOS los partidos por 3+ goles (mín. 2 partidos predichos)
+      if (j.predCount>=2 && j.failBy3===j.predCount) logros.push('ciego');
+
+      // Mono: no acierta ni un ganador (mín. 3 partidos predichos)
+      if (j.predCount>=3 && j.aciertoGanador===0) logros.push('mono');
+
+      // Caída libre: baja 5+ puestos
+      if (posChange[j.name] <= -5) logros.push('caidalibre');
+
+      // Error de bulto: predice ganador del equipo que pierde por 4+
+      if (j.wrongWinner4) logros.push('errorbuque');
+    }
+
+    // Desaparecido: 2 jornadas seguidas sin predecir
+    const completedDays = getCompletedDays();
+    const dayIdx = completedDays.indexOf(date);
+    if (dayIdx>=1) {
+      const prevDay=completedDays[dayIdx-1];
+      const prevPreds=MATCHES.filter(m=>m.date===prevDay)
+        .filter(m=>(dbPreds[j.name]||{})[m.id]).length;
+      if (j.predCount===0 && prevPreds===0) logros.push('desaparecido');
+    }
+
+    // El Leyva: exactamente 0 puntos habiendo predicho
+    if (j.pts===0 && j.predCount>0) {
+      const zeroPredPlayers=jornada.filter(x=>x.pts===0&&x.predCount>0);
+      if (zeroPredPlayers.length===1) {
+        logros.push('leyva');
+      } else {
+        const totalPts=zeroPredPlayers.map(zp=>({name:zp.name,total:playerPts(zp.name)}));
+        const minTotal=Math.min(...totalPts.map(x=>x.total));
+        const worstTotal=totalPts.filter(x=>x.total===minTotal);
+        const leyvaName=worstTotal.sort((a,b)=>b.name.localeCompare(a.name))[0].name;
+        if (j.name===leyvaName) logros.push('leyva');
+      }
+    }
+
+    if (logros.length) result[j.name]=[...new Set(logros)];
+  });
+
+  return result;
+}
+
+function getLogrosHtml(playerName, date) {
+  if (!date) return '';
+  const logros = calcLogrosForDay(date);
+  const playerLogros = logros[playerName] || [];
+  if (!playerLogros.length) return '';
+  return playerLogros.map(id => {
+    const def = LOGROS_DEF.find(d=>d.id===id);
+    if (!def) return '';
+    const color = def.tipo==='bueno' ? 'rgba(0,204,102,.15)' : 'rgba(232,0,28,.12)';
+    const border = def.tipo==='bueno' ? 'rgba(0,204,102,.3)' : 'rgba(232,0,28,.25)';
+    return `<span title="${def.desc}" style="display:inline-flex;align-items:center;gap:3px;
+      background:${color};border:1px solid ${border};
+      border-radius:6px;padding:2px 6px;font-size:10px;
+      color:${def.tipo==='bueno'?'var(--green3)':'#FC8181'};
+      margin:1px;cursor:help">
+      ${def.emoji} ${def.nombre}
+    </span>`;
+  }).join('');
+}
+
+function renderLogrosMuro() {
+  const date = getLastCompletedDay();
+  if (!date) return '';
+  const logros = calcLogrosForDay(date);
+  const dateStr = new Date(date+'T12:00:00Z').toLocaleDateString('es-ES',
+    {timeZone:'Europe/Madrid', weekday:'long', day:'numeric', month:'long'});
+
+  let html = `<div style="padding:0 16px 16px">
+    <div class="sec-lbl">Logros · ${dateStr}</div>`;
+
+  // Separar buenos y malos
+  const conLogros = Object.entries(logros).filter(([,ls])=>ls.length>0);
+  if (!conLogros.length) {
+    html += '<div class="empty">Aún no hay jornadas completadas</div>';
+  } else {
+    const buenos = conLogros.filter(([,ls])=>ls.some(l=>LOGROS_DEF.find(d=>d.id===l)?.tipo==='bueno'));
+    const malos  = conLogros.filter(([,ls])=>ls.some(l=>LOGROS_DEF.find(d=>d.id===l)?.tipo==='malo'));
+
+    // El Leyva primero — protagonismo máximo
+    const leyvaEntry = conLogros.find(([,ls])=>ls.includes('leyva'));
+    if (leyvaEntry) {
+      const [leyvaName] = leyvaEntry;
+      html += `<div style="
+        background:linear-gradient(135deg,rgba(90,0,0,.5),rgba(50,0,0,.4));
+        border:2px solid rgba(232,0,28,.5);
+        border-radius:12px;padding:14px 16px;margin-bottom:16px;
+        box-shadow:0 0 20px rgba(232,0,28,.2);
+        text-align:center">
+        <div style="font-size:28px;margin-bottom:4px">🤦</div>
+        <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+          color:#FC8181;margin-bottom:6px">Logro especial de jornada</div>
+        <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px">${leyvaName}</div>
+        <div style="font-size:15px;font-weight:700;color:#FC8181;margin-bottom:4px">🤦 Txuri-urdin</div>
+        <div style="font-size:12px;color:rgba(255,255,255,.6)">0 puntos esta jornada.<br>Ves el fútbol como el Leyva, de espaldas.</div>
+      </div>`;
+    }
+
+    if (buenos.length) {
+      html += `<div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+        color:var(--green3);margin-bottom:8px">🏆 Destacados</div>`;
+      buenos.forEach(([name, ls]) => {
+        const goodLogros = ls.filter(l=>LOGROS_DEF.find(d=>d.id===l)?.tipo==='bueno');
+        html += `<div style="background:rgba(0,204,102,.06);border:1px solid rgba(0,204,102,.15);
+          border-radius:10px;padding:10px 12px;margin-bottom:6px">
+          <div style="font-size:14px;font-weight:600;color:var(--white);margin-bottom:5px">${name}</div>
+          <div style="display:flex;flex-direction:column;gap:2px">${goodLogros.map(id=>{
+            const def=LOGROS_DEF.find(d=>d.id===id);
+            return def?`<span style="font-size:11px;color:var(--green3)">${def.emoji} ${def.nombre} <span style="color:var(--gray2);font-size:10px">· ${def.desc}</span></span>`:'';
+          }).join('')}</div>
+        </div>`;
+      });
+    }
+
+    if (malos.length) {
+      html += `<div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
+        color:#FC8181;margin:12px 0 8px">💩 Hall of shame</div>`;
+      malos.forEach(([name, ls]) => {
+        const badLogros = ls.filter(l=>LOGROS_DEF.find(d=>d.id===l)?.tipo==='malo');
+        if (!badLogros.length) return;
+        html += `<div style="background:rgba(232,0,28,.06);border:1px solid rgba(232,0,28,.15);
+          border-radius:10px;padding:10px 12px;margin-bottom:6px">
+          <div style="font-size:14px;font-weight:600;color:var(--white);margin-bottom:5px">${name}</div>
+          <div style="display:flex;flex-direction:column;gap:2px">${badLogros.map(id=>{
+            const def=LOGROS_DEF.find(d=>d.id===id);
+            return def?`<span style="font-size:11px;color:#FC8181">${def.emoji} ${def.nombre} <span style="color:var(--gray2);font-size:10px">· ${def.desc}</span></span>`:'';
+          }).join('')}</div>
+        </div>`;
+      });
+    }
+  }
+  html += '</div>';
+  return html;
+}
 
 // ════════════════════════════════════════════════════════════════════
 // HORA MADRID
@@ -1403,11 +1722,21 @@ function renderBonusList(){
 // ════════════════════════════════════════════════════════════════════
 function renderAll(){
   renderNext();renderToday();updateUrgentBadge();
+  updateLogrosMuro();
   if(curPage==='all') renderAllPreds();
   if(curPage==='rank') renderRanking();
   if(curPage==='history') renderHistory();
   if(curPage==='live') renderLive();
   updateLiveBadge();
+}
+
+function updateLogrosMuro(){
+  const wrap = document.getElementById('logrosMuroWrap');
+  if (!wrap) return;
+  const lastDay = getLastCompletedDay();
+  if (!lastDay) { wrap.style.display='none'; return; }
+  wrap.style.display='block';
+  wrap.innerHTML = renderLogrosMuro();
 }
 
 function updateUrgentBadge(){
@@ -1575,37 +1904,93 @@ function renderAllPreds(){
 }
 
 // ── HISTORIAL ────────────────────────────────────────────────────
-function renderHistory(){
-  const cont=document.getElementById('historyList');
+function populateHistoryFilters(){
   const finished=MATCHES.filter(m=>mStatus(m)==='closed'&&dbResults[m.id]);
-  if(!finished.length){cont.innerHTML='<div class="empty">Aún no hay partidos terminados con resultado registrado</div>';return;}
+  if(!finished.length) return;
+  const daysSel=document.getElementById('histFilterDay');
+  const matchSel=document.getElementById('histFilterMatch');
+  const playerSel=document.getElementById('histFilterPlayer');
+  const currDay=daysSel?.value||'';
+  const currMatch=matchSel?.value||'';
+  const currPlayer=playerSel?.value||'';
+
+  // Days
+  if(daysSel){
+    const days=[...new Set(finished.map(m=>m.date))].sort().reverse();
+    daysSel.innerHTML='<option value="">📅 Todas las jornadas</option>';
+    days.forEach(d=>{
+      const o=document.createElement('option');
+      o.value=d;o.textContent='📅 '+fmtDate(d);
+      if(d===currDay)o.selected=true;
+      daysSel.appendChild(o);
+    });
+  }
+
+  // Matches — filtered by selected day
+  if(matchSel){
+    const dayFilter=daysSel?.value||'';
+    const pool=dayFilter?finished.filter(m=>m.date===dayFilter):finished;
+    matchSel.innerHTML='<option value="">⚽ Todos los partidos</option>';
+    pool.sort((a,b)=>a.id-b.id).forEach(m=>{
+      const o=document.createElement('option');
+      o.value=m.id;o.textContent='⚽ '+resolveTeam(m,'home')+' vs '+resolveTeam(m,'away');
+      if(String(m.id)===currMatch)o.selected=true;
+      matchSel.appendChild(o);
+    });
+  }
+
+  // Players — only once
+  if(playerSel&&playerSel.options.length<=1){
+    PLAYERS.forEach(p=>{
+      const o=document.createElement('option');
+      o.value=p;o.textContent='👤 '+p;
+      if(p===currPlayer)o.selected=true;
+      playerSel.appendChild(o);
+    });
+  }
+}
+
+function renderHistory(){
+  populateHistoryFilters();
+  const cont=document.getElementById('historyList');
+  const filterDay   =document.getElementById('histFilterDay')?.value||'';
+  const filterMatch =document.getElementById('histFilterMatch')?.value||'';
+  const filterPlayer=document.getElementById('histFilterPlayer')?.value||'';
+
+  let finished=MATCHES.filter(m=>mStatus(m)==='closed'&&dbResults[m.id]);
+  if(filterDay)    finished=finished.filter(m=>m.date===filterDay);
+  if(filterMatch)  finished=finished.filter(m=>String(m.id)===filterMatch);
+  if(!finished.length){cont.innerHTML='<div class="empty">No hay partidos que coincidan con el filtro</div>';return;}
+
+  const playersToShow=filterPlayer?[filterPlayer]:PLAYERS;
   const byDate={};
   finished.forEach(m=>{if(!byDate[m.date])byDate[m.date]=[];byDate[m.date].push(m);});
   let html='';
   Object.keys(byDate).sort().reverse().forEach(date=>{
-    html+=`<div class="dg"><div class="dg-hdr">${fmtDate(date)}</div>`;
+    if(!filterMatch) html+=`<div class="dg"><div class="dg-hdr">${fmtDate(date)}</div>`;
     byDate[date].forEach(m=>{
       const res=dbResults[m.id];
+      const rH=resolveTeam(m,'home'),rA=resolveTeam(m,'away');
       html+=`<div class="hist-match-card">
         <div class="hist-header">
           <div class="hist-teams">
-            ${flagImg(resolveTeam(m,'home'),'hist-flag','hist-flag-ph')}
-            <div class="hist-team-name">${resolveTeam(m,'home')}</div>
+            ${flagImg(rH,'hist-flag','hist-flag-ph')}
+            <div class="hist-team-name">${rH}</div>
             <div class="hist-vs">vs</div>
-            ${flagImg(resolveTeam(m,'away'),'hist-flag','hist-flag-ph')}
-            <div class="hist-team-name">${resolveTeam(m,'away')}</div>
+            ${flagImg(rA,'hist-flag','hist-flag-ph')}
+            <div class="hist-team-name">${rA}</div>
           </div>
           <div style="text-align:right">
             <div class="hist-result">${res.rL}–${res.rV}</div>
-            ${res.gol?`<div class="hist-meta">MVP: ${res.gol}</div>`:''}
+            ${res.gol?`<div class="hist-meta">Goleador: ${res.gol}</div>`:''}
           </div>
         </div>
         <div class="hist-preds">`;
-      PLAYERS.forEach(p=>{
+      playersToShow.forEach(p=>{
         const pred=(dbPreds[p]||{})[m.id];
         const pts=calcPts(pred,res);
         const isMe=p===player;
-        let ptsClass='pts-gray',predColor='var(--gray)';
+        let ptsClass='pts-gray',predColor='var(--gray2)';
         if(pred){
           if(pts>=5){ptsClass='pts-gold';predColor='var(--gold)';}
           else if(pts>=2){ptsClass='pts-green';predColor='var(--green2)';}
@@ -1613,7 +1998,7 @@ function renderHistory(){
           else{ptsClass='pts-red';predColor='#FC8181';}
         }
         html+=`<div class="hist-pred-row${isMe?' me':''}">
-          <div class="hist-pname" style="color:${isMe?'#FB923C':'var(--white)'}">${p}${isMe?' ·':''}</div>
+          <div class="hist-pname" style="color:${isMe?'#FB923C':'var(--white)'}">${p}</div>
           <div class="hist-right">
             ${pred?`<div class="hist-pred-score" style="color:${predColor}">${pred.predL}–${pred.predV}</div>`:'<div style="font-size:11px;color:var(--gray)">—</div>'}
             ${pred&&pred.gol?`<div style="font-size:10px;color:var(--gray);max-width:70px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pred.gol}</div>`:''}
@@ -1623,88 +2008,16 @@ function renderHistory(){
       });
       html+=`</div></div>`;
     });
-    html+='</div>';
+    if(!filterMatch) html+='</div>';
   });
   cont.innerHTML=html;
 }
 
-// ── EN JUEGO ─────────────────────────────────────────────────────
-function renderLive(){
-  const cont=document.getElementById('liveList');
-  // Solo partidos EN DIRECTO ahora mismo
-  const ordered=MATCHES.filter(m=>mStatus(m)==='live');
-  if(!ordered.length){
-    cont.innerHTML='<div class="empty" style="line-height:2">⚽ No hay ningún partido en juego ahora mismo.<br><span style="font-size:12px;color:var(--gray)">Las predicciones de todos aparecerán aquí en cuanto empiece un partido.</span></div>';
-    return;
-  }
-  let html='';
-  html+=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
-    <span style="width:8px;height:8px;border-radius:50%;background:var(--green2);display:inline-block;animation:cdpulse 1s ease infinite"></span>
-    <span style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--green2)">${ordered.length} partido${ordered.length>1?'s':''} en directo</span>
-  </div>`;
-  ordered.forEach(m=>{
-    const isLive=true;
-    const res=dbResults[m.id];
-    const rHome=resolveTeam(m,'home'),rAway=resolveTeam(m,'away');
-    html+=`<div class="hist-match-card" style="margin-bottom:12px;${isLive?'border-color:rgba(0,204,102,.35);':'' }">
-      <div class="hist-header">
-        <div class="hist-teams">
-          ${flagImg(rHome)} <div class="hist-team-name" style="margin:0 4px">${rHome}</div>
-          <div class="hist-vs">vs</div>
-          ${flagImg(rAway)} <div class="hist-team-name" style="margin:0 4px">${rAway}</div>
-        </div>
-        <div style="text-align:right">
-          ${isLive
-            ? `<span style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--green2);animation:cdpulse 1.5s ease infinite">● EN DIRECTO</span>`
-            : res
-              ? `<div class="hist-result">${res.rL}–${res.rV}</div>`
-              : `<div style="font-size:11px;color:var(--gray)">Sin resultado</div>`
-          }
-          <div class="hist-meta">${m.phase} · ${m.time}</div>
-        </div>
-      </div>
-      <div class="hist-preds">`;
-    // Sort: current player first, then rest
-    const sorted=[...PLAYERS].sort((a,b)=>a===player?-1:b===player?1:0);
-    sorted.forEach(p=>{
-      const pred=(dbPreds[p]||{})[m.id];
-      const pts=res?calcPts(pred,res):null;
-      const isMe=p===player;
-      let ptsClass='pts-gray',predColor='var(--gray2)';
-      if(pred&&res){
-        if(pts>=5){ptsClass='pts-gold';predColor='var(--gold)';}
-        else if(pts>=2){ptsClass='pts-green';predColor='var(--green2)';}
-        else if(pts===1){ptsClass='pts-silver';predColor='var(--silver)';}
-        else{ptsClass='pts-red';predColor='#FC8181';}
-      }
-      html+=`<div class="hist-pred-row${isMe?' me':''}">
-        <div class="hist-pname" style="color:${isMe?'#FB923C':'var(--white)'}">${p}</div>
-        <div class="hist-right">
-          ${pred
-            ? `<div class="hist-pred-score" style="color:${predColor}">${pred.predL}–${pred.predV}</div>
-               ${pred.gol?`<div style="font-size:10px;color:var(--gray);max-width:65px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pred.gol}</div>`:''}`
-            : `<div style="font-size:11px;color:var(--gray)">—</div>`
-          }
-          ${res?`<div class="hist-pts ${ptsClass}">${pred?`+${pts}`:'0'}</div>`:''}
-        </div>
-      </div>`;
-    });
-    html+=`</div></div>`;
-  });
-  cont.innerHTML=html;
-}
-
-function updateLiveBadge(){
-  const badge=document.getElementById('liveBadge');
-  if(!badge) return;
-  const liveCount=MATCHES.filter(m=>mStatus(m)==='live').length;
-  badge.style.display=liveCount>0?'block':'none';
-  badge.textContent=liveCount;
-}
 
 // ── RANKING ──────────────────────────────────────────────────────
 function renderRanking(){
   const medals=['🥇','🥈','🥉'];
+  const lastDay = getLastCompletedDay();
   const scores=PLAYERS.map(p=>({name:p,pts:playerPts(p),exactos:playerExactos(p),saved:Object.keys(dbPreds[p]||{}).length}))
     .sort((a,b)=>b.pts-a.pts||b.exactos-a.exactos||a.name.localeCompare(b.name));
   let html='';
@@ -1712,14 +2025,16 @@ function renderRanking(){
     const isMe=s.name===player;
     const posClass=i<3?' p'+(i+1):'';
     const meBorder=isMe&&i>=3?'border-color:rgba(237,124,52,.4);background:rgba(237,124,52,.06);':'';
+    const logrosHtml=lastDay?getLogrosHtml(s.name,lastDay):'';
     html+=`<div class="rk-row${posClass}" style="${meBorder}">
       <div class="rk-pos">${i+1}</div>
       <div class="rk-medal">${medals[i]||''}</div>
-      <div>
+      <div style="min-width:0">
         <div class="rk-name" style="${isMe&&i>=3?'color:#FB923C':''}">
           ${s.name}${isMe?' <span style="font-size:10px;color:var(--gray);font-weight:400">· tú</span>':''}
         </div>
         <div class="rk-sub">${s.exactos} exactos · ${s.saved} predicciones</div>
+        ${logrosHtml?`<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:2px">${logrosHtml}</div>`:''}
       </div>
       <div class="rk-pts">${s.pts}</div>
     </div>`;
