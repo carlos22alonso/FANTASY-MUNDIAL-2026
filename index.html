@@ -707,16 +707,12 @@ body::after{
 <div id="pgRank" style="display:none">
   <div class="rank-wrap">
     <div class="sec-lbl">Clasificación</div>
-    <!-- Tabs acumulado / jornada -->
-    <div class="tabs" style="margin-bottom:14px">
-      <button class="tab on" id="rankTabTotal"   onclick="setRankTab('total')">Acumulado</button>
-      <button class="tab"    id="rankTabJornada" onclick="setRankTab('jornada')">Por jornada</button>
-    </div>
-    <!-- Selector de jornada (solo visible en pestaña jornada) -->
-    <div id="rankJornadaSel" style="display:none;margin-bottom:12px">
-      <select class="res-sel" id="rankDaySel" onchange="renderRanking()" style="font-size:13px;padding:8px 12px">
-        <option value="">— Selecciona jornada —</option>
-      </select>
+    <div class="tabs" style="margin-bottom:14px;flex-wrap:wrap;gap:4px">
+      <button class="tab on" id="rankTabTotal"  onclick="setRankTab('total')">Total</button>
+      <button class="tab"    id="rankTabJ1"     onclick="setRankTab('j1')">J1</button>
+      <button class="tab"    id="rankTabJ2"     onclick="setRankTab('j2')">J2</button>
+      <button class="tab"    id="rankTabJ3"     onclick="setRankTab('j3')">J3</button>
+      <button class="tab"    id="rankTabFinal"  onclick="setRankTab('final')">Final</button>
     </div>
     <div id="rankList"></div>
   </div>
@@ -775,6 +771,16 @@ body::after{
           <option value="">— Selecciona jugador —</option>
         </select>
         <div style="margin-top:10px">
+          <div class="res-lbl">Jornada</div>
+          <select class="res-sel" id="bonusJornadaSel" style="margin-top:4px">
+            <option value="total">Total (acumulado)</option>
+            <option value="j1">J1 — Grupos</option>
+            <option value="j2">J2 — Grupos</option>
+            <option value="j3">J3 — Grupos</option>
+            <option value="final">Fase Final</option>
+          </select>
+        </div>
+        <div style="margin-top:10px">
           <div class="res-lbl">Puntos (positivo para sumar, negativo para restar)</div>
           <div style="display:flex;align-items:center;gap:10px;margin-top:4px">
             <input class="ri" type="number" id="bonusPts" placeholder="0" style="width:80px">
@@ -784,7 +790,7 @@ body::after{
         <button class="btn-blue" onclick="saveBonus()" style="margin-top:12px">Aplicar ajuste</button>
         <div id="bonusCurrentList" style="margin-top:14px"></div>
       </div>
-      <div class="info-box">Los ajustes se acumulan sobre el total. Para anular uno aplica el valor contrario.</div>
+      <div class="info-box">Los ajustes se imputan a la jornada elegida y también al acumulado total.</div>
     </div>
 
     <button class="btn-ghost" onclick="doLogoutAdmin()" style="margin-top:10px">Cerrar sesión admin</button>
@@ -1106,6 +1112,20 @@ const MATCHES = [
   {id:104,phase:"Final",      date:"2026-07-19",time:"21:00", home:"Ganador SF1",    away:"Ganador SF2",    group:"-"},
 ];
 
+
+// ════════════════════════════════════════════════════════════════════
+// JORNADAS
+// ════════════════════════════════════════════════════════════════════
+const JORNADAS = [
+  {id:'j1',   label:'J1 — Grupos',    matchIds: Array.from({length:24}, (_,i)=>i+1)},
+  {id:'j2',   label:'J2 — Grupos',    matchIds: Array.from({length:24}, (_,i)=>i+25)},
+  {id:'j3',   label:'J3 — Grupos',    matchIds: Array.from({length:24}, (_,i)=>i+49)},
+  {id:'final',label:'Fase Final',     matchIds: Array.from({length:32}, (_,i)=>i+73)},
+];
+
+function getJornada(mid) {
+  return JORNADAS.find(j=>j.matchIds.includes(parseInt(mid))) || null;
+}
 // ════════════════════════════════════════════════════════════════════
 // ESTADO
 // ════════════════════════════════════════════════════════════════════
@@ -1166,8 +1186,66 @@ function calcPts(pred,res){
   if(pG&&rG&&pG.trim().toLowerCase()===rG.trim().toLowerCase()) pts+=3;
   return pts;
 }
-function playerPts(pid){ const base=Object.keys(dbPreds[pid]||{}).reduce((s,mid)=>s+calcPts(dbPreds[pid][mid],dbResults[mid]),0); return base+(dbBonus[pid]||0); }
-function playerExactos(pid){ return Object.keys(dbPreds[pid]||{}).filter(mid=>{const p=dbPreds[pid][mid],r=dbResults[mid];return r&&p&&p.predL===r.rL&&p.predV===r.rV;}).length; }
+function playerPts(pid){
+  const base=Object.keys(dbPreds[pid]||{}).reduce((s,mid)=>s+calcPts(dbPreds[pid][mid],dbResults[mid]),0);
+  const bonus=dbBonus[pid];
+  const bonusPts=typeof bonus==='object'&&bonus!==null ? (bonus.total||0) : (bonus||0);
+  return base+bonusPts;
+}
+function playerPtsForJornada(pid, jornadaId){
+  const j=JORNADAS.find(x=>x.id===jornadaId);
+  if(!j) return 0;
+  const base=j.matchIds.reduce((s,mid)=>s+calcPts((dbPreds[pid]||{})[mid],dbResults[mid]),0);
+  const bonus=dbBonus[pid];
+  const bonusPts=typeof bonus==='object'&&bonus!==null ? (bonus[jornadaId]||0) : 0;
+  return base+bonusPts;
+}
+function playerExactosForJornada(pid, jornadaId){
+  const j=JORNADAS.find(x=>x.id===jornadaId);
+  if(!j) return 0;
+  return j.matchIds.filter(mid=>{
+    const p=(dbPreds[pid]||{})[mid],r=dbResults[mid];
+    return p&&r&&p.predL===r.rL&&p.predV===r.rV;
+  }).length;
+}
+function playerGoleadoresForJornada(pid, jornadaId){
+  const j=JORNADAS.find(x=>x.id===jornadaId);
+  if(!j) return 0;
+  return j.matchIds.filter(mid=>{
+    const p=(dbPreds[pid]||{})[mid],r=dbResults[mid];
+    return p&&r&&p.gol&&r.gol&&p.gol.trim().toLowerCase()===r.gol.trim().toLowerCase();
+  }).length;
+}
+function playerGanadoresForJornada(pid, jornadaId){
+  const j=JORNADAS.find(x=>x.id===jornadaId);
+  if(!j) return 0;
+  return j.matchIds.filter(mid=>{
+    const p=(dbPreds[pid]||{})[mid],r=dbResults[mid];
+    if(!p||!r) return false;
+    return Math.sign(p.predL-p.predV)===Math.sign(r.rL-r.rV);
+  }).length;
+}
+// Global stats (all jornadas)
+function playerExactos(pid){
+  return Object.keys(dbPreds[pid]||{}).filter(mid=>{
+    const p=dbPreds[pid][mid],r=dbResults[mid];
+    return r&&p&&p.predL===r.rL&&p.predV===r.rV;
+  }).length;
+}
+function playerGoleadores(pid){
+  return Object.keys(dbPreds[pid]||{}).filter(mid=>{
+    const p=dbPreds[pid][mid],r=dbResults[mid];
+    return r&&p&&p.gol&&r.gol&&p.gol.trim().toLowerCase()===r.gol.trim().toLowerCase();
+  }).length;
+}
+function playerGanadores(pid){
+  return Object.keys(dbPreds[pid]||{}).filter(mid=>{
+    const p=dbPreds[pid][mid],r=dbResults[mid];
+    if(!p||!r) return false;
+    return Math.sign(p.predL-p.predV)===Math.sign(r.rL-r.rV);
+  }).length;
+}
+
 
 // Resolver nombre real de equipo (usa dbClasif si hay override)
 function teamName(matchId, side) {
@@ -1402,17 +1480,24 @@ async function saveClasif(){ showToast('Usa el botón Guardar de cada partido');
 // ── BONUS PUNTOS ──────────────────────────────────────────────
 async function saveBonus(){
   const pid=document.getElementById('bonusPlayerSel').value;
+  const jornadaId=document.getElementById('bonusJornadaSel').value||'total';
   const pts=parseInt(document.getElementById('bonusPts').value);
   if(!pid){showToast('Selecciona un jugador');return;}
   if(isNaN(pts)||pts===0){showToast('Introduce un valor distinto de 0');return;}
-  dbBonus[pid]=(dbBonus[pid]||0)+pts;
+
+  // dbBonus[pid] is now an object: {total, j1, j2, j3, final}
+  if(!dbBonus[pid]||typeof dbBonus[pid]!=='object') dbBonus[pid]={total:0,j1:0,j2:0,j3:0,final:0};
+  dbBonus[pid][jornadaId]=(dbBonus[pid][jornadaId]||0)+pts;
+  dbBonus[pid].total=(dbBonus[pid].total||0)+pts;
+
   if(window.FB_READY){
     await window.FB.update(fbPath('bonus'),{[pid]:dbBonus[pid]});
   } else {
     localSet('fm_bonus',dbBonus);
   }
   document.getElementById('bonusPts').value='';
-  showToast(`Ajuste aplicado: ${pts>0?'+':''}${pts} pts a ${pid}`);
+  const jornadaLabel=document.getElementById('bonusJornadaSel').options[document.getElementById('bonusJornadaSel').selectedIndex].text;
+  showToast(`${pts>0?'+':''}${pts} pts a ${pid} en ${jornadaLabel}`);
   renderBonusList();
   renderAll();
 }
@@ -1420,15 +1505,27 @@ async function saveBonus(){
 function renderBonusList(){
   const cont=document.getElementById('bonusCurrentList');
   if(!cont) return;
-  const entries=Object.entries(dbBonus).filter(([,v])=>v!==0);
+  const entries=Object.entries(dbBonus).filter(([,v])=>v&&(typeof v==='object'?v.total!==0:v!==0));
   if(!entries.length){cont.innerHTML='<div style="font-size:12px;color:var(--gray);text-align:center;padding:8px">Sin ajustes aplicados</div>';return;}
   let html='<div style="font-size:11px;color:var(--gray2);margin-bottom:6px;letter-spacing:1px;text-transform:uppercase">Ajustes activos</div>';
   entries.forEach(([p,v])=>{
-    const col=v>0?'var(--green3)':'#FC8181';
-    html+=`<div style="display:flex;justify-content:space-between;align-items:center;
-      padding:6px 10px;background:rgba(255,255,255,.04);border-radius:7px;margin-bottom:4px">
-      <span style="font-size:13px;color:var(--white)">${p}</span>
-      <span style="font-family:'DM Mono',monospace;font-size:14px;font-weight:600;color:${col}">${v>0?'+':''}${v}</span>
+    const total=typeof v==='object'?v.total:v;
+    const col=total>0?'var(--green3)':'#FC8181';
+    // Breakdown by jornada
+    let breakdown='';
+    if(typeof v==='object'){
+      const parts=[];
+      ['j1','j2','j3','final'].forEach(jid=>{
+        if(v[jid]) parts.push(`${jid.toUpperCase()}: ${v[jid]>0?'+':''}${v[jid]}`);
+      });
+      if(parts.length) breakdown=`<div style="font-size:10px;color:var(--gray2);margin-top:2px">${parts.join(' · ')}</div>`;
+    }
+    html+=`<div style="padding:6px 10px;background:rgba(255,255,255,.04);border-radius:7px;margin-bottom:4px">
+      <div style="display:flex;justify-content:space-between;align-items:center">
+        <span style="font-size:13px;color:var(--white)">${p}</span>
+        <span style="font-family:'DM Mono',monospace;font-size:14px;font-weight:600;color:${col}">${total>0?'+':''}${total} total</span>
+      </div>
+      ${breakdown}
     </div>`;
   });
   cont.innerHTML=html;
@@ -1727,225 +1824,88 @@ let rankTab = 'total';
 
 function setRankTab(t) {
   rankTab = t;
-  document.getElementById('rankTabTotal').classList.toggle('on', t==='total');
-  document.getElementById('rankTabJornada').classList.toggle('on', t==='jornada');
-  document.getElementById('rankJornadaSel').style.display = t==='jornada' ? 'block' : 'none';
-  if (t==='jornada') populateRankDaySel();
+  ['total','j1','j2','j3','final'].forEach(k => {
+    const btn = document.getElementById('rankTab'+k.charAt(0).toUpperCase()+k.slice(1));
+    if(btn) btn.classList.toggle('on', k===t);
+  });
   renderRanking();
 }
 
-function populateRankDaySel() {
-  const sel = document.getElementById('rankDaySel');
-  const currVal = sel.value;
-  // Days with at least one result
-  const days = [...new Set(MATCHES.filter(m=>dbResults[m.id]).map(m=>m.date))].sort().reverse();
-  sel.innerHTML = '<option value="">— Selecciona jornada —</option>';
-  days.forEach(d => {
-    const o = document.createElement('option');
-    o.value = d;
-    o.textContent = fmtDate(d);
-    if (d === currVal) o.selected = true;
-    sel.appendChild(o);
-  });
-}
-
-function playerPtsForDay(pid, date) {
-  const dayMatches = MATCHES.filter(m => m.date === date && dbResults[m.id]);
-  return dayMatches.reduce((s, m) => s + calcPts((dbPreds[pid]||{})[m.id], dbResults[m.id]), 0);
-}
-
-function playerExactosForDay(pid, date) {
-  return MATCHES.filter(m => m.date === date && dbResults[m.id]).filter(m => {
-    const p=(dbPreds[pid]||{})[m.id], r=dbResults[m.id];
-    return p&&r&&p.predL===r.rL&&p.predV===r.rV;
-  }).length;
+function statsRow(exactos, goleadores, ganadores) {
+  return `<div style="display:flex;gap:10px;margin-top:3px;flex-wrap:wrap">
+    <span style="font-size:10px;color:var(--gold)">⚽ ${exactos} exactos</span>
+    <span style="font-size:10px;color:var(--green3)">🎯 ${goleadores} goleadores</span>
+    <span style="font-size:10px;color:var(--silver)">✓ ${ganadores} ganadores</span>
+  </div>`;
 }
 
 function renderRanking() {
   const medals = ['🥇','🥈','🥉'];
   const cont = document.getElementById('rankList');
+  if(!cont) return;
+
+  let scores, jornada = null;
 
   if (rankTab === 'total') {
-    // ── ACUMULADO ──
-    const scores = PLAYERS.map(p => ({
+    scores = PLAYERS.map(p => ({
       name:p,
       pts:playerPts(p),
       exactos:playerExactos(p),
+      goleadores:playerGoleadores(p),
+      ganadores:playerGanadores(p),
       saved:Object.keys(dbPreds[p]||{}).length
-    })).sort((a,b) => b.pts-a.pts || b.exactos-a.exactos || a.name.localeCompare(b.name));
-
-    let html = '';
-    scores.forEach((s,i) => {
-      const isMe = s.name===player;
-      const posClass = i<3?' p'+(i+1):'';
-      const meBorder = isMe&&i>=3?'border-color:rgba(237,124,52,.4);background:rgba(237,124,52,.06);':'';
-      html += `<div class="rk-row${posClass}" style="${meBorder}">
-        <div class="rk-pos">${i+1}</div>
-        <div class="rk-medal">${medals[i]||''}</div>
-        <div>
-          <div class="rk-name" style="${isMe&&i>=3?'color:#FB923C':''}">
-            ${s.name}${isMe?' <span style="font-size:10px;color:var(--gray);font-weight:400">· tú</span>':''}
-          </div>
-          <div class="rk-sub">${s.exactos} exactos · ${s.saved} predicciones</div>
-        </div>
-        <div class="rk-pts">${s.pts}</div>
-      </div>`;
-    });
-    if (!Object.keys(dbResults).length)
-      html += '<div class="info-box">Los puntos se actualizan cuando el organizador introduce resultados.</div>';
-    cont.innerHTML = html;
-
+    })).sort((a,b)=>b.pts-a.pts||b.exactos-a.exactos||a.name.localeCompare(b.name));
   } else {
-    // ── POR JORNADA ──
-    const date = document.getElementById('rankDaySel')?.value || '';
-    if (!date) {
-      cont.innerHTML = '<div class="empty">Selecciona una jornada</div>';
-      return;
-    }
-    const dayMatches = MATCHES.filter(m => m.date===date && dbResults[m.id]);
-    if (!dayMatches.length) {
-      cont.innerHTML = '<div class="empty">No hay resultados para esta jornada</div>';
-      return;
-    }
-
-    const scores = PLAYERS.map(p => ({
+    jornada = JORNADAS.find(j=>j.id===rankTab);
+    scores = PLAYERS.map(p => ({
       name:p,
-      pts:playerPtsForDay(p, date),
-      exactos:playerExactosForDay(p, date),
-      predCount:dayMatches.filter(m=>(dbPreds[p]||{})[m.id]).length
-    })).sort((a,b) => b.pts-a.pts || b.exactos-a.exactos || a.name.localeCompare(b.name));
+      pts:playerPtsForJornada(p, rankTab),
+      exactos:playerExactosForJornada(p, rankTab),
+      goleadores:playerGoleadoresForJornada(p, rankTab),
+      ganadores:playerGanadoresForJornada(p, rankTab),
+      saved:jornada.matchIds.filter(mid=>(dbPreds[p]||{})[mid]).length
+    })).sort((a,b)=>b.pts-a.pts||b.exactos-a.exactos||a.name.localeCompare(b.name));
+  }
 
-    const dateStr = fmtDate(date);
-    let html = `<div style="font-size:11px;color:var(--gray2);margin-bottom:12px;text-align:center">${dateStr} · ${dayMatches.length} partido${dayMatches.length>1?'s':''}</div>`;
+  let html = '';
+  if (jornada) {
+    html += `<div style="font-size:11px;color:var(--gray2);margin-bottom:12px;text-align:center">${jornada.label} · ${jornada.matchIds.length} partidos</div>`;
+  }
 
-    scores.forEach((s,i) => {
-      const isMe = s.name===player;
-      const posClass = i<3?' p'+(i+1):'';
-      const meBorder = isMe&&i>=3?'border-color:rgba(237,124,52,.4);background:rgba(237,124,52,.06);':'';
-      html += `<div class="rk-row${posClass}" style="${meBorder}">
-        <div class="rk-pos">${i+1}</div>
-        <div class="rk-medal">${medals[i]||''}</div>
-        <div>
-          <div class="rk-name" style="${isMe&&i>=3?'color:#FB923C':''}">
-            ${s.name}${isMe?' <span style="font-size:10px;color:var(--gray);font-weight:400">· tú</span>':''}
-          </div>
-          <div class="rk-sub">${s.exactos} exactos · ${s.predCount} predicciones</div>
+  scores.forEach((s,i) => {
+    const isMe = s.name===player;
+    const posClass = i<3?' p'+(i+1):'';
+    const meBorder = isMe&&i>=3?'border-color:rgba(237,124,52,.4);background:rgba(237,124,52,.06);':'';
+    html += `<div class="rk-row${posClass}" style="${meBorder}">
+      <div class="rk-pos">${i+1}</div>
+      <div class="rk-medal">${medals[i]||''}</div>
+      <div style="min-width:0">
+        <div class="rk-name" style="${isMe&&i>=3?'color:#FB923C':''}">
+          ${s.name}${isMe?' <span style="font-size:10px;color:var(--gray);font-weight:400">· tú</span>':''}
         </div>
-        <div class="rk-pts">${s.pts}</div>
-      </div>`;
-    });
-    cont.innerHTML = html;
-  }
+        ${statsRow(s.exactos, s.goleadores, s.ganadores)}
+      </div>
+      <div class="rk-pts">${s.pts}</div>
+    </div>`;
+  });
+
+  if(!Object.keys(dbResults).length)
+    html += '<div class="info-box">Los puntos se actualizan cuando el organizador introduce resultados.</div>';
+  cont.innerHTML = html;
 }
 
-
-// ── MODAL PREDICCIÓN ─────────────────────────────────────────────
-function openModal(mid){
-  if(!player){showToast('Inicia sesión primero');return;}
-  const m=MATCHES.find(x=>x.id===mid);if(!m)return;
-  if(!isOpen(m)&&!isFuture(m)){showToast('Este partido ya está cerrado');return;}
-  modalMid=mid;
-  const pred=(dbPreds[player]||{})[mid];
-  const st=mDT(m);
-  const dateStr=st.toLocaleDateString('es-ES',{timeZone:'Europe/Madrid',weekday:'short',day:'numeric',month:'short'});
-  const closed=!isOpen(m)&&!isFuture(m);
-  const rHome=resolveTeam(m,'home'), rAway=resolveTeam(m,'away');
-  document.getElementById('mTeams').innerHTML=`
-    ${flagImg(rHome,'modal-flag','modal-flag-ph')}
-    <span style="font-size:12px;color:var(--gray2)">vs</span>
-    ${flagImg(rAway,'modal-flag','modal-flag-ph')}`;
-  document.getElementById('mTitle').textContent=`${rHome} vs ${rAway}`;
-  document.getElementById('mSub').textContent=`${m.phase} · ${dateStr} · ${m.time}`;
-  document.getElementById('mHome').textContent=rHome;
-  document.getElementById('mAway').textContent=rAway;
-  document.getElementById('mPL').value=pred?.predL??'';
-  document.getElementById('mPV').value=pred?.predV??'';
-  document.getElementById('mGol').value=pred?.gol??'';
-  const ok=document.getElementById('savedOk');
-  ok.style.display='none';ok.style.color='var(--green2)';ok.textContent='✓ Predicción guardada';
-  document.getElementById('mSaveBtn').style.display='block';
-  document.getElementById('mSaveBtn').textContent='Guardar predicción';
-  document.getElementById('mSaveBtn').disabled=closed;
-  document.getElementById('mPL').disabled=closed;
-  document.getElementById('mPV').disabled=closed;
-  document.getElementById('mGol').disabled=closed;
-  const clearBtn=document.getElementById('mClearBtn');
-  const hasPred=!!(dbPreds[player]&&dbPreds[player][mid]);
-  clearBtn.style.display=(hasPred&&!closed)?'block':'none';
-  document.getElementById('modalOv').classList.add('open');
-  if(window._modalTimer) clearInterval(window._modalTimer);
-  window._modalTimer=setInterval(()=>{
-    const m2=MATCHES.find(x=>x.id===modalMid);
-    if(!m2||!document.getElementById('modalOv').classList.contains('open')){clearInterval(window._modalTimer);return;}
-    if(!isOpen(m2)&&!isFuture(m2)){
-      clearInterval(window._modalTimer);
-      document.getElementById('mPL').disabled=true;
-      document.getElementById('mPV').disabled=true;
-      document.getElementById('mGol').disabled=true;
-      document.getElementById('mSaveBtn').style.display='none';
-      const ok2=document.getElementById('savedOk');
-      ok2.style.display='block';ok2.style.color='var(--red)';
-      ok2.textContent='⛔ Partido iniciado — predicción bloqueada';
-      showToast('⛔ El partido ha empezado');
-    }
-  },10000);
+// Legacy — kept for compatibility
+function playerPtsForDay(pid, date){
+  return MATCHES.filter(m=>m.date===date&&dbResults[m.id])
+    .reduce((s,m)=>s+calcPts((dbPreds[pid]||{})[m.id],dbResults[m.id]),0);
+}
+function playerExactosForDay(pid, date){
+  return MATCHES.filter(m=>m.date===date&&dbResults[m.id]).filter(m=>{
+    const p=(dbPreds[pid]||{})[m.id],r=dbResults[m.id];
+    return p&&r&&p.predL===r.rL&&p.predV===r.rV;
+  }).length;
 }
 
-function closeModal(e){
-  if(e&&e.target!==document.getElementById('modalOv')) return;
-  document.getElementById('modalOv').classList.remove('open');
-  if(window._modalTimer){clearInterval(window._modalTimer);window._modalTimer=null;}
-  modalMid=null;
-}
-
-async function savePred(){
-  const mCheck=MATCHES.find(x=>x.id===modalMid);
-  if(mCheck&&!isOpen(mCheck)&&!isFuture(mCheck)){
-    document.getElementById('mSaveBtn').style.display='none';
-    document.getElementById('mPL').disabled=true;
-    document.getElementById('mPV').disabled=true;
-    document.getElementById('mGol').disabled=true;
-    const ok=document.getElementById('savedOk');
-    ok.style.display='block';ok.style.color='var(--red)';
-    ok.textContent='⛔ Partido iniciado — predicción bloqueada';
-    return;
-  }
-  const pL=document.getElementById('mPL').value,pV=document.getElementById('mPV').value;
-  const gol=document.getElementById('mGol').value.trim();
-  if(pL===''||pV===''){showToast('Pon el resultado antes de guardar');return;}
-  const data={predL:parseInt(pL),predV:parseInt(pV),gol};
-  if(!dbPreds[player])dbPreds[player]={};
-  dbPreds[player][modalMid]=data;
-  if(window.FB_READY) await window.FB.update(fbPath('predictions/'+player),{[modalMid]:data});
-  else localSet('fm_pred_'+player,dbPreds[player]);
-  const ok=document.getElementById('savedOk');
-  ok.style.display='block';ok.style.color='var(--green2)';ok.textContent='✓ Predicción guardada';
-  document.getElementById('mSaveBtn').textContent='✓ Guardado';
-  document.getElementById('mSaveBtn').disabled=true;
-  document.getElementById('mClearBtn').style.display='none';
-  showToast('Predicción guardada ✓');renderAll();
-  setTimeout(()=>{document.getElementById('modalOv').classList.remove('open');modalMid=null;},1100);
-}
-
-async function clearPred(){
-  if(!player||!modalMid) return;
-  const m=MATCHES.find(x=>x.id===modalMid);
-  if(!m||!isOpen(m)){showToast('No se puede borrar — partido ya iniciado');return;}
-  if(!dbPreds[player]||!dbPreds[player][modalMid]){showToast('No hay predicción que borrar');return;}
-  delete dbPreds[player][modalMid];
-  if(window.FB_READY) await window.FB.update(fbPath('predictions/'+player),{[modalMid]:null});
-  else localSet('fm_pred_'+player,dbPreds[player]);
-  document.getElementById('mPL').value='';
-  document.getElementById('mPV').value='';
-  document.getElementById('mGol').value='';
-  const ok=document.getElementById('savedOk');
-  ok.style.display='block';ok.style.color='var(--gray2)';ok.textContent='✓ Predicción eliminada';
-  document.getElementById('mSaveBtn').textContent='Guardar predicción';
-  document.getElementById('mSaveBtn').disabled=false;
-  document.getElementById('mClearBtn').style.display='none';
-  showToast('Predicción eliminada');renderAll();
-  setTimeout(()=>{document.getElementById('modalOv').classList.remove('open');modalMid=null;},900);
-}
 
 // ── ADMIN ────────────────────────────────────────────────────────
 function onAdminMatch(){
