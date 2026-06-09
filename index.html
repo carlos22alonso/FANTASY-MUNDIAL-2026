@@ -21,7 +21,7 @@
   //   databaseURL: "https://fantasy-mundial-2026-default-rtdb.europe-west1.firebasedatabase.app",
   //   projectId: "fantasy-mundial-2026", ...
   // };
-  window.ADMIN_PIN = "1907";
+  window.ADMIN_PIN = "2026";
   window.FIREBASE_CONFIG = FIREBASE_CONFIG;
   if (FIREBASE_CONFIG) {
     const { initializeApp } = await import('https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js');
@@ -389,7 +389,7 @@ body::after{
 .rank-wrap{padding:16px}
 .rk-row{
   display:grid;grid-template-columns:28px 28px 1fr auto;
-  align-items:start;gap:10px;padding:13px 16px;
+  align-items:center;gap:10px;padding:13px 16px;
   border-radius:12px;margin-bottom:8px;border:1px solid rgba(79,195,247,.10);
   background:var(--card);transition:all .2s;
 }
@@ -639,9 +639,6 @@ body::after{
     </div>
   </div>
 
-  <!-- MURO LOGROS — visible antes de login -->
-  <div id="logrosMuroWrap" style="display:none"></div>
-
   <!-- sin sesión -->
   <div class="login-bar" id="loginWrap">
     <select class="login-select" id="loginSel">
@@ -710,6 +707,17 @@ body::after{
 <div id="pgRank" style="display:none">
   <div class="rank-wrap">
     <div class="sec-lbl">Clasificación</div>
+    <!-- Tabs acumulado / jornada -->
+    <div class="tabs" style="margin-bottom:14px">
+      <button class="tab on" id="rankTabTotal"   onclick="setRankTab('total')">Acumulado</button>
+      <button class="tab"    id="rankTabJornada" onclick="setRankTab('jornada')">Por jornada</button>
+    </div>
+    <!-- Selector de jornada (solo visible en pestaña jornada) -->
+    <div id="rankJornadaSel" style="display:none;margin-bottom:12px">
+      <select class="res-sel" id="rankDaySel" onchange="renderRanking()" style="font-size:13px;padding:8px 12px">
+        <option value="">— Selecciona jornada —</option>
+      </select>
+    </div>
     <div id="rankList"></div>
   </div>
 </div>
@@ -974,13 +982,13 @@ function flagImg(team, cls='', phCls='') {
 // ════════════════════════════════════════════════════════════════════
 const PLAYERS = [
   "Vardock","Roti","JR","Doley","Muerto JR","Borgogno",
-  "Gucci","XeskoPA","Vera","Eric","Belu","MG","Txolo","Romy","Jorquera","Sayes","Noah","Pau Lopez","Largo","Lete"
+  "Gucci","XeskoPA","Vera","Eric","Belu","MG","Txolo","Ros","Jorquera","Sayes","Noah","Pau Lopez","Largo","Lete"
 ];
 const PLAYER_PINS = {
   "Vardock":"2951","Roti":"6234","JR":"9233","Doley":"9385",
   "Muerto JR":"2681","Borgogno":"4658","Gucci":"7891","XeskoPA":"9975",
   "Vera":"9042","Eric":"8226","Belu":"4931","MG":"1041",
-  "Txolo":"2322","Romy":"2814","Jorquera":"5706","Sayes":"2606",
+  "Txolo":"2322","Ros":"2814","Jorquera":"5706","Sayes":"2606",
   "Noah":"8367","Pau Lopez":"1188","Largo":"2824","Lete":"5140"
 };
 const MATCHES = [
@@ -1118,304 +1126,13 @@ function localSet(k,v){ try{localStorage.setItem(k,JSON.stringify(v));}catch(e){
 // SISTEMA DE LOGROS
 // ════════════════════════════════════════════════════════════════════
 
-const LOGROS_DEF = [
-  // BUENOS
-  {id:'mvp',        emoji:'🚀', nombre:'MVP',              desc:'Mejor puntuación de la jornada (único)',                tipo:'bueno'},
-  {id:'perfecto',   emoji:'💎', nombre:'Perfecto',         desc:'Resultado exacto + goleador en el mismo partido',       tipo:'bueno'},
-  {id:'maquina',    emoji:'⚡', nombre:'Máquina',          desc:'4+ resultados exactos en la jornada',                  tipo:'bueno'},
-  {id:'pistolero',  emoji:'🎯', nombre:'Pistolero',        desc:'Aciertas el goleador 2+ veces en la jornada',          tipo:'bueno'},
-  {id:'resucitado', emoji:'📈', nombre:'Resucitado',       desc:'Subes 5+ puestos en el ranking en la jornada',         tipo:'bueno'},
-  {id:'ojolince',   emoji:'💡', nombre:'Ojo de lince',     desc:'Aciertas ganador cuando solo 3 o menos lo predijeron', tipo:'bueno'},
-  // MALOS
-  {id:'inutil',     emoji:'💤', nombre:'Inútil',           desc:'No predices ningún partido de la jornada',             tipo:'malo'},
-  {id:'ciego',      emoji:'🙈', nombre:'Ciego',            desc:'Fallas todos los partidos por 3+ goles de diferencia', tipo:'malo'},
-  {id:'mono',       emoji:'🎲', nombre:'Mono con dardos',  desc:'No aciertas ni un ganador en la jornada (mín. 3 partidos)', tipo:'malo'},
-  {id:'caidalibre', emoji:'📉', nombre:'Caída libre',      desc:'Bajas 5+ puestos en el ranking en la jornada',         tipo:'malo'},
-  {id:'desaparecido',emoji:'🫠',nombre:'Desaparecido',     desc:'2 jornadas seguidas sin predecir ningún partido',      tipo:'malo'},
-  {id:'errorbuque', emoji:'🤦', nombre:'Error de bulto',   desc:'Predices ganador del equipo que pierde por 4+ goles',  tipo:'malo'},
-  // ESPECIAL
-  {id:'leyva',      emoji:'🤦', nombre:'Txuri-urdin',      desc:'0 puntos esta jornada. Ves el fútbol como el Leyva, de espaldas.', tipo:'malo'},
-];
 
 // Obtener fechas únicas con partidos terminados y con resultado
-function getCompletedDays() {
-  const datesWithResults = [...new Set(
-    MATCHES.filter(m => dbResults[m.id]).map(m => m.date)
-  )].sort();
-  // Una jornada está completa cuando TODOS sus partidos tienen resultado
-  return datesWithResults.filter(date => {
-    const dayMatches = MATCHES.filter(m => m.date === date);
-    return dayMatches.every(m => dbResults[m.id]);
-  });
-}
 
-function getLastCompletedDay() {
-  const days = getCompletedDays();
-  return days.length ? days[days.length - 1] : null;
-}
 
-function getPrevRankingBeforeDay(date) {
-  // Calcular ranking SIN los partidos del día dado
-  const dayMatchIds = new Set(MATCHES.filter(m => m.date === date).map(m => m.id));
-  return PLAYERS.map(p => {
-    const pts = Object.keys(dbPreds[p]||{})
-      .filter(mid => !dayMatchIds.has(parseInt(mid)))
-      .reduce((s, mid) => s + calcPts(dbPreds[p][mid], dbResults[mid]), 0)
-      + (dbBonus[p]||0);
-    return {name:p, pts};
-  }).sort((a,b) => b.pts - a.pts).map((x,i) => ({...x, pos:i+1}));
-}
 
-function calcLogrosForDay(date) {
-  const dayMatches = MATCHES.filter(m => m.date === date && dbResults[m.id]);
-  if (!dayMatches.length) return {};
-  const dayMatchIds = dayMatches.map(m => m.id);
-  const n = dayMatchIds.length; // partidos de la jornada
 
-  // Stats por jugador
-  const jornada = PLAYERS.map(p => {
-    const preds = dbPreds[p] || {};
-    const pts = dayMatchIds.reduce((s,mid) => s + calcPts(preds[mid], dbResults[mid]), 0);
-    const predCount = dayMatchIds.filter(mid => preds[mid]).length;
 
-    const exactos = dayMatchIds.filter(mid => {
-      const pr=preds[mid], res=dbResults[mid];
-      return pr&&res&&pr.predL===res.rL&&pr.predV===res.rV;
-    }).length;
-
-    const goleadores = dayMatchIds.filter(mid => {
-      const pr=preds[mid], res=dbResults[mid];
-      return pr&&res&&pr.gol&&res.gol&&pr.gol.trim().toLowerCase()===res.gol.trim().toLowerCase();
-    }).length;
-
-    const failBy3 = dayMatchIds.filter(mid => {
-      const pr=preds[mid], res=dbResults[mid];
-      if(!pr||!res) return false;
-      return Math.abs((pr.predL+pr.predV)-(res.rL+res.rV)) >= 3;
-    }).length;
-
-    const aciertoGanador = dayMatchIds.filter(mid => {
-      const pr=preds[mid], res=dbResults[mid];
-      if(!pr||!res) return false;
-      return Math.sign(pr.predL-pr.predV)===Math.sign(res.rL-res.rV);
-    }).length;
-
-    const wrongWinner4 = dayMatchIds.some(mid => {
-      const pr=preds[mid], res=dbResults[mid];
-      if(!pr||!res) return false;
-      const predSign=Math.sign(pr.predL-pr.predV);
-      const resSign=Math.sign(res.rL-res.rV);
-      return predSign!==resSign && Math.abs(res.rL-res.rV)>=4;
-    });
-
-    return {name:p, pts, predCount, exactos, goleadores, failBy3, aciertoGanador, wrongWinner4};
-  });
-
-  // Ranking previo para cambios de posición
-  const dayMatchIdSet = new Set(dayMatchIds);
-  const prevRank = PLAYERS.map(p => {
-    const pts = Object.keys(dbPreds[p]||{})
-      .filter(mid => !dayMatchIdSet.has(parseInt(mid)))
-      .reduce((s,mid) => s+calcPts(dbPreds[p][mid],dbResults[mid]),0)+(dbBonus[p]||0);
-    return {name:p,pts};
-  }).sort((a,b)=>b.pts-a.pts).map((x,i)=>({...x,pos:i+1}));
-
-  const currRank = PLAYERS.map(p=>({name:p,pts:playerPts(p)}))
-    .sort((a,b)=>b.pts-a.pts).map((x,i)=>({...x,pos:i+1}));
-
-  const posChange = {};
-  PLAYERS.forEach(p=>{
-    const prev=prevRank.find(x=>x.name===p)?.pos||20;
-    const curr=currRank.find(x=>x.name===p)?.pos||20;
-    posChange[p]=prev-curr;
-  });
-
-  const result = {};
-
-  // MVP — único mejor de la jornada
-  const maxPts = Math.max(...jornada.map(j=>j.pts));
-  const mvpPlayers = jornada.filter(j=>j.pts===maxPts&&maxPts>0);
-
-  jornada.forEach(j => {
-    const logros = [];
-
-    // ── BUENOS ──────────────────────────────────────────────────
-    // MVP: único con la mejor puntuación
-    if (j.pts===maxPts && maxPts>0 && mvpPlayers.length===1) logros.push('mvp');
-
-    // Perfecto: exacto + goleador en mismo partido
-    const tienePerfecto = dayMatchIds.some(mid => {
-      const pr=(dbPreds[j.name]||{})[mid], res=dbResults[mid];
-      if(!pr||!res) return false;
-      return pr.predL===res.rL&&pr.predV===res.rV&&pr.gol&&res.gol&&
-        pr.gol.trim().toLowerCase()===res.gol.trim().toLowerCase();
-    });
-    if (tienePerfecto) logros.push('perfecto');
-
-    // Máquina: 4+ exactos (requiere jornada con ≥4 partidos)
-    if (n >= 4 && j.exactos >= 4) logros.push('maquina');
-
-    // Pistolero: acierta goleador 2+ veces en la jornada
-    if (j.goleadores >= 2) logros.push('pistolero');
-
-    // Resucitado: sube 5+ puestos
-    if (posChange[j.name] >= 5) logros.push('resucitado');
-
-    // Ojo de lince: acierta ganador que solo ≤3 predijeron
-    const sorpresa = dayMatchIds.some(mid => {
-      const pr=(dbPreds[j.name]||{})[mid], res=dbResults[mid];
-      if(!pr||!res) return false;
-      const resSign=Math.sign(res.rL-res.rV);
-      if(Math.sign(pr.predL-pr.predV)!==resSign) return false;
-      const nAcertaron=PLAYERS.filter(p=>{
-        const pp=(dbPreds[p]||{})[mid];
-        return pp&&Math.sign(pp.predL-pp.predV)===resSign;
-      }).length;
-      return nAcertaron<=3;
-    });
-    if (sorpresa) logros.push('ojolince');
-
-    // ── MALOS ───────────────────────────────────────────────────
-    // Inútil: no predice ningún partido
-    if (j.predCount===0) {
-      logros.push('inutil');
-    } else {
-      // Ciego: falla TODOS los partidos por 3+ goles (mín. 2 partidos predichos)
-      if (j.predCount>=2 && j.failBy3===j.predCount) logros.push('ciego');
-
-      // Mono: no acierta ni un ganador (mín. 3 partidos predichos)
-      if (j.predCount>=3 && j.aciertoGanador===0) logros.push('mono');
-
-      // Caída libre: baja 5+ puestos
-      if (posChange[j.name] <= -5) logros.push('caidalibre');
-
-      // Error de bulto: predice ganador del equipo que pierde por 4+
-      if (j.wrongWinner4) logros.push('errorbuque');
-    }
-
-    // Desaparecido: 2 jornadas seguidas sin predecir
-    const completedDays = getCompletedDays();
-    const dayIdx = completedDays.indexOf(date);
-    if (dayIdx>=1) {
-      const prevDay=completedDays[dayIdx-1];
-      const prevPreds=MATCHES.filter(m=>m.date===prevDay)
-        .filter(m=>(dbPreds[j.name]||{})[m.id]).length;
-      if (j.predCount===0 && prevPreds===0) logros.push('desaparecido');
-    }
-
-    // El Leyva: exactamente 0 puntos habiendo predicho
-    if (j.pts===0 && j.predCount>0) {
-      const zeroPredPlayers=jornada.filter(x=>x.pts===0&&x.predCount>0);
-      if (zeroPredPlayers.length===1) {
-        logros.push('leyva');
-      } else {
-        const totalPts=zeroPredPlayers.map(zp=>({name:zp.name,total:playerPts(zp.name)}));
-        const minTotal=Math.min(...totalPts.map(x=>x.total));
-        const worstTotal=totalPts.filter(x=>x.total===minTotal);
-        const leyvaName=worstTotal.sort((a,b)=>b.name.localeCompare(a.name))[0].name;
-        if (j.name===leyvaName) logros.push('leyva');
-      }
-    }
-
-    if (logros.length) result[j.name]=[...new Set(logros)];
-  });
-
-  return result;
-}
-
-function getLogrosHtml(playerName, date) {
-  if (!date) return '';
-  const logros = calcLogrosForDay(date);
-  const playerLogros = logros[playerName] || [];
-  if (!playerLogros.length) return '';
-  return playerLogros.map(id => {
-    const def = LOGROS_DEF.find(d=>d.id===id);
-    if (!def) return '';
-    const color = def.tipo==='bueno' ? 'rgba(0,204,102,.15)' : 'rgba(232,0,28,.12)';
-    const border = def.tipo==='bueno' ? 'rgba(0,204,102,.3)' : 'rgba(232,0,28,.25)';
-    return `<span title="${def.desc}" style="display:inline-flex;align-items:center;gap:3px;
-      background:${color};border:1px solid ${border};
-      border-radius:6px;padding:2px 6px;font-size:10px;
-      color:${def.tipo==='bueno'?'var(--green3)':'#FC8181'};
-      margin:1px;cursor:help">
-      ${def.emoji} ${def.nombre}
-    </span>`;
-  }).join('');
-}
-
-function renderLogrosMuro() {
-  const date = getLastCompletedDay();
-  if (!date) return '';
-  const logros = calcLogrosForDay(date);
-  const dateStr = new Date(date+'T12:00:00Z').toLocaleDateString('es-ES',
-    {timeZone:'Europe/Madrid', weekday:'long', day:'numeric', month:'long'});
-
-  let html = `<div style="padding:0 16px 16px">
-    <div class="sec-lbl">Logros · ${dateStr}</div>`;
-
-  // Separar buenos y malos
-  const conLogros = Object.entries(logros).filter(([,ls])=>ls.length>0);
-  if (!conLogros.length) {
-    html += '<div class="empty">Aún no hay jornadas completadas</div>';
-  } else {
-    const buenos = conLogros.filter(([,ls])=>ls.some(l=>LOGROS_DEF.find(d=>d.id===l)?.tipo==='bueno'));
-    const malos  = conLogros.filter(([,ls])=>ls.some(l=>LOGROS_DEF.find(d=>d.id===l)?.tipo==='malo'));
-
-    // El Leyva primero — protagonismo máximo
-    const leyvaEntry = conLogros.find(([,ls])=>ls.includes('leyva'));
-    if (leyvaEntry) {
-      const [leyvaName] = leyvaEntry;
-      html += `<div style="
-        background:linear-gradient(135deg,rgba(90,0,0,.5),rgba(50,0,0,.4));
-        border:2px solid rgba(232,0,28,.5);
-        border-radius:12px;padding:14px 16px;margin-bottom:16px;
-        box-shadow:0 0 20px rgba(232,0,28,.2);
-        text-align:center">
-        <div style="font-size:28px;margin-bottom:4px">🤦</div>
-        <div style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
-          color:#FC8181;margin-bottom:6px">Logro especial de jornada</div>
-        <div style="font-size:20px;font-weight:700;color:#fff;margin-bottom:4px">${leyvaName}</div>
-        <div style="font-size:15px;font-weight:700;color:#FC8181;margin-bottom:4px">🤦 Txuri-urdin</div>
-        <div style="font-size:12px;color:rgba(255,255,255,.6)">0 puntos esta jornada.<br>Ves el fútbol como el Leyva, de espaldas.</div>
-      </div>`;
-    }
-
-    if (buenos.length) {
-      html += `<div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
-        color:var(--green3);margin-bottom:8px">🏆 Destacados</div>`;
-      buenos.forEach(([name, ls]) => {
-        const goodLogros = ls.filter(l=>LOGROS_DEF.find(d=>d.id===l)?.tipo==='bueno');
-        html += `<div style="background:rgba(0,204,102,.06);border:1px solid rgba(0,204,102,.15);
-          border-radius:10px;padding:10px 12px;margin-bottom:6px">
-          <div style="font-size:14px;font-weight:600;color:var(--white);margin-bottom:5px">${name}</div>
-          <div style="display:flex;flex-direction:column;gap:2px">${goodLogros.map(id=>{
-            const def=LOGROS_DEF.find(d=>d.id===id);
-            return def?`<span style="font-size:11px;color:var(--green3)">${def.emoji} ${def.nombre} <span style="color:var(--gray2);font-size:10px">· ${def.desc}</span></span>`:'';
-          }).join('')}</div>
-        </div>`;
-      });
-    }
-
-    if (malos.length) {
-      html += `<div style="font-size:10px;font-weight:700;letter-spacing:2px;text-transform:uppercase;
-        color:#FC8181;margin:12px 0 8px">💩 Hall of shame</div>`;
-      malos.forEach(([name, ls]) => {
-        const badLogros = ls.filter(l=>LOGROS_DEF.find(d=>d.id===l)?.tipo==='malo');
-        if (!badLogros.length) return;
-        html += `<div style="background:rgba(232,0,28,.06);border:1px solid rgba(232,0,28,.15);
-          border-radius:10px;padding:10px 12px;margin-bottom:6px">
-          <div style="font-size:14px;font-weight:600;color:var(--white);margin-bottom:5px">${name}</div>
-          <div style="display:flex;flex-direction:column;gap:2px">${badLogros.map(id=>{
-            const def=LOGROS_DEF.find(d=>d.id===id);
-            return def?`<span style="font-size:11px;color:#FC8181">${def.emoji} ${def.nombre} <span style="color:var(--gray2);font-size:10px">· ${def.desc}</span></span>`:'';
-          }).join('')}</div>
-        </div>`;
-      });
-    }
-  }
-  html += '</div>';
-  return html;
-}
 
 // ════════════════════════════════════════════════════════════════════
 // HORA MADRID
@@ -1722,7 +1439,6 @@ function renderBonusList(){
 // ════════════════════════════════════════════════════════════════════
 function renderAll(){
   renderNext();renderToday();updateUrgentBadge();
-  updateLogrosMuro();
   if(curPage==='all') renderAllPreds();
   if(curPage==='rank') renderRanking();
   if(curPage==='history') renderHistory();
@@ -1730,14 +1446,6 @@ function renderAll(){
   updateLiveBadge();
 }
 
-function updateLogrosMuro(){
-  const wrap = document.getElementById('logrosMuroWrap');
-  if (!wrap) return;
-  const lastDay = getLastCompletedDay();
-  if (!lastDay) { wrap.style.display='none'; return; }
-  wrap.style.display='block';
-  wrap.innerHTML = renderLogrosMuro();
-}
 
 function updateUrgentBadge(){
   const badge=document.getElementById('urgentBadge');
@@ -2015,33 +1723,121 @@ function renderHistory(){
 
 
 // ── RANKING ──────────────────────────────────────────────────────
-function renderRanking(){
-  const medals=['🥇','🥈','🥉'];
-  const lastDay = getLastCompletedDay();
-  const scores=PLAYERS.map(p=>({name:p,pts:playerPts(p),exactos:playerExactos(p),saved:Object.keys(dbPreds[p]||{}).length}))
-    .sort((a,b)=>b.pts-a.pts||b.exactos-a.exactos||a.name.localeCompare(b.name));
-  let html='';
-  scores.forEach((s,i)=>{
-    const isMe=s.name===player;
-    const posClass=i<3?' p'+(i+1):'';
-    const meBorder=isMe&&i>=3?'border-color:rgba(237,124,52,.4);background:rgba(237,124,52,.06);':'';
-    const logrosHtml=lastDay?getLogrosHtml(s.name,lastDay):'';
-    html+=`<div class="rk-row${posClass}" style="${meBorder}">
-      <div class="rk-pos">${i+1}</div>
-      <div class="rk-medal">${medals[i]||''}</div>
-      <div style="min-width:0">
-        <div class="rk-name" style="${isMe&&i>=3?'color:#FB923C':''}">
-          ${s.name}${isMe?' <span style="font-size:10px;color:var(--gray);font-weight:400">· tú</span>':''}
-        </div>
-        <div class="rk-sub">${s.exactos} exactos · ${s.saved} predicciones</div>
-        ${logrosHtml?`<div style="margin-top:5px;display:flex;flex-wrap:wrap;gap:2px">${logrosHtml}</div>`:''}
-      </div>
-      <div class="rk-pts">${s.pts}</div>
-    </div>`;
-  });
-  if(!Object.keys(dbResults).length) html+='<div class="info-box">Los puntos se actualizan cuando el organizador introduce resultados reales.</div>';
-  document.getElementById('rankList').innerHTML=html;
+let rankTab = 'total';
+
+function setRankTab(t) {
+  rankTab = t;
+  document.getElementById('rankTabTotal').classList.toggle('on', t==='total');
+  document.getElementById('rankTabJornada').classList.toggle('on', t==='jornada');
+  document.getElementById('rankJornadaSel').style.display = t==='jornada' ? 'block' : 'none';
+  if (t==='jornada') populateRankDaySel();
+  renderRanking();
 }
+
+function populateRankDaySel() {
+  const sel = document.getElementById('rankDaySel');
+  const currVal = sel.value;
+  // Days with at least one result
+  const days = [...new Set(MATCHES.filter(m=>dbResults[m.id]).map(m=>m.date))].sort().reverse();
+  sel.innerHTML = '<option value="">— Selecciona jornada —</option>';
+  days.forEach(d => {
+    const o = document.createElement('option');
+    o.value = d;
+    o.textContent = fmtDate(d);
+    if (d === currVal) o.selected = true;
+    sel.appendChild(o);
+  });
+}
+
+function playerPtsForDay(pid, date) {
+  const dayMatches = MATCHES.filter(m => m.date === date && dbResults[m.id]);
+  return dayMatches.reduce((s, m) => s + calcPts((dbPreds[pid]||{})[m.id], dbResults[m.id]), 0);
+}
+
+function playerExactosForDay(pid, date) {
+  return MATCHES.filter(m => m.date === date && dbResults[m.id]).filter(m => {
+    const p=(dbPreds[pid]||{})[m.id], r=dbResults[m.id];
+    return p&&r&&p.predL===r.rL&&p.predV===r.rV;
+  }).length;
+}
+
+function renderRanking() {
+  const medals = ['🥇','🥈','🥉'];
+  const cont = document.getElementById('rankList');
+
+  if (rankTab === 'total') {
+    // ── ACUMULADO ──
+    const scores = PLAYERS.map(p => ({
+      name:p,
+      pts:playerPts(p),
+      exactos:playerExactos(p),
+      saved:Object.keys(dbPreds[p]||{}).length
+    })).sort((a,b) => b.pts-a.pts || b.exactos-a.exactos || a.name.localeCompare(b.name));
+
+    let html = '';
+    scores.forEach((s,i) => {
+      const isMe = s.name===player;
+      const posClass = i<3?' p'+(i+1):'';
+      const meBorder = isMe&&i>=3?'border-color:rgba(237,124,52,.4);background:rgba(237,124,52,.06);':'';
+      html += `<div class="rk-row${posClass}" style="${meBorder}">
+        <div class="rk-pos">${i+1}</div>
+        <div class="rk-medal">${medals[i]||''}</div>
+        <div>
+          <div class="rk-name" style="${isMe&&i>=3?'color:#FB923C':''}">
+            ${s.name}${isMe?' <span style="font-size:10px;color:var(--gray);font-weight:400">· tú</span>':''}
+          </div>
+          <div class="rk-sub">${s.exactos} exactos · ${s.saved} predicciones</div>
+        </div>
+        <div class="rk-pts">${s.pts}</div>
+      </div>`;
+    });
+    if (!Object.keys(dbResults).length)
+      html += '<div class="info-box">Los puntos se actualizan cuando el organizador introduce resultados.</div>';
+    cont.innerHTML = html;
+
+  } else {
+    // ── POR JORNADA ──
+    const date = document.getElementById('rankDaySel')?.value || '';
+    if (!date) {
+      cont.innerHTML = '<div class="empty">Selecciona una jornada</div>';
+      return;
+    }
+    const dayMatches = MATCHES.filter(m => m.date===date && dbResults[m.id]);
+    if (!dayMatches.length) {
+      cont.innerHTML = '<div class="empty">No hay resultados para esta jornada</div>';
+      return;
+    }
+
+    const scores = PLAYERS.map(p => ({
+      name:p,
+      pts:playerPtsForDay(p, date),
+      exactos:playerExactosForDay(p, date),
+      predCount:dayMatches.filter(m=>(dbPreds[p]||{})[m.id]).length
+    })).sort((a,b) => b.pts-a.pts || b.exactos-a.exactos || a.name.localeCompare(b.name));
+
+    const dateStr = fmtDate(date);
+    let html = `<div style="font-size:11px;color:var(--gray2);margin-bottom:12px;text-align:center">${dateStr} · ${dayMatches.length} partido${dayMatches.length>1?'s':''}</div>`;
+
+    scores.forEach((s,i) => {
+      const isMe = s.name===player;
+      const posClass = i<3?' p'+(i+1):'';
+      const meBorder = isMe&&i>=3?'border-color:rgba(237,124,52,.4);background:rgba(237,124,52,.06);':'';
+      html += `<div class="rk-row${posClass}" style="${meBorder}">
+        <div class="rk-pos">${i+1}</div>
+        <div class="rk-medal">${medals[i]||''}</div>
+        <div>
+          <div class="rk-name" style="${isMe&&i>=3?'color:#FB923C':''}">
+            ${s.name}${isMe?' <span style="font-size:10px;color:var(--gray);font-weight:400">· tú</span>':''}
+          </div>
+          <div class="rk-sub">${s.exactos} exactos · ${s.predCount} predicciones</div>
+        </div>
+        <div class="rk-pts">${s.pts}</div>
+      </div>`;
+    });
+    cont.innerHTML = html;
+  }
+}
+
 
 // ── MODAL PREDICCIÓN ─────────────────────────────────────────────
 function openModal(mid){
@@ -2053,7 +1849,6 @@ function openModal(mid){
   const st=mDT(m);
   const dateStr=st.toLocaleDateString('es-ES',{timeZone:'Europe/Madrid',weekday:'short',day:'numeric',month:'short'});
   const closed=!isOpen(m)&&!isFuture(m);
-  // Teams con banderas
   const rHome=resolveTeam(m,'home'), rAway=resolveTeam(m,'away');
   document.getElementById('mTeams').innerHTML=`
     ${flagImg(rHome,'modal-flag','modal-flag-ph')}
@@ -2069,16 +1864,15 @@ function openModal(mid){
   const ok=document.getElementById('savedOk');
   ok.style.display='none';ok.style.color='var(--green2)';ok.textContent='✓ Predicción guardada';
   document.getElementById('mSaveBtn').style.display='block';
+  document.getElementById('mSaveBtn').textContent='Guardar predicción';
   document.getElementById('mSaveBtn').disabled=closed;
   document.getElementById('mPL').disabled=closed;
   document.getElementById('mPV').disabled=closed;
   document.getElementById('mGol').disabled=closed;
-  // Show clear button only if pred exists and match is still open
   const clearBtn=document.getElementById('mClearBtn');
   const hasPred=!!(dbPreds[player]&&dbPreds[player][mid]);
   clearBtn.style.display=(hasPred&&!closed)?'block':'none';
   document.getElementById('modalOv').classList.add('open');
-  // Timer de cierre automático
   if(window._modalTimer) clearInterval(window._modalTimer);
   window._modalTimer=setInterval(()=>{
     const m2=MATCHES.find(x=>x.id===modalMid);
@@ -2096,12 +1890,14 @@ function openModal(mid){
     }
   },10000);
 }
+
 function closeModal(e){
   if(e&&e.target!==document.getElementById('modalOv')) return;
   document.getElementById('modalOv').classList.remove('open');
   if(window._modalTimer){clearInterval(window._modalTimer);window._modalTimer=null;}
   modalMid=null;
 }
+
 async function savePred(){
   const mCheck=MATCHES.find(x=>x.id===modalMid);
   if(mCheck&&!isOpen(mCheck)&&!isFuture(mCheck)){
@@ -2126,6 +1922,7 @@ async function savePred(){
   ok.style.display='block';ok.style.color='var(--green2)';ok.textContent='✓ Predicción guardada';
   document.getElementById('mSaveBtn').textContent='✓ Guardado';
   document.getElementById('mSaveBtn').disabled=true;
+  document.getElementById('mClearBtn').style.display='none';
   showToast('Predicción guardada ✓');renderAll();
   setTimeout(()=>{document.getElementById('modalOv').classList.remove('open');modalMid=null;},1100);
 }
@@ -2145,8 +1942,8 @@ async function clearPred(){
   ok.style.display='block';ok.style.color='var(--gray2)';ok.textContent='✓ Predicción eliminada';
   document.getElementById('mSaveBtn').textContent='Guardar predicción';
   document.getElementById('mSaveBtn').disabled=false;
-  showToast('Predicción eliminada');
-  renderAll();
+  document.getElementById('mClearBtn').style.display='none';
+  showToast('Predicción eliminada');renderAll();
   setTimeout(()=>{document.getElementById('modalOv').classList.remove('open');modalMid=null;},900);
 }
 
