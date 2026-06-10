@@ -1819,6 +1819,69 @@ function renderHistory(){
 }
 
 
+// ── EN JUEGO ─────────────────────────────────────────────────────
+function renderLive(){
+  const cont=document.getElementById('liveList');
+  if(!cont) return;
+  const ordered=MATCHES.filter(m=>mStatus(m)==='live');
+  if(!ordered.length){
+    cont.innerHTML='<div class="empty" style="line-height:2">⚽ No hay ningún partido en juego ahora mismo.<br><span style="font-size:12px;color:var(--gray)">Las predicciones de todos aparecerán aquí en cuanto empiece un partido.</span></div>';
+    return;
+  }
+  let html=`<div style="display:flex;align-items:center;gap:8px;margin-bottom:14px">
+    <span style="width:8px;height:8px;border-radius:50%;background:var(--green2);display:inline-block;animation:cdpulse 1s ease infinite"></span>
+    <span style="font-size:11px;font-weight:700;letter-spacing:2px;text-transform:uppercase;color:var(--green2)">${ordered.length} partido${ordered.length>1?'s':''} en directo</span>
+  </div>`;
+  ordered.forEach(m=>{
+    const res=dbResults[m.id];
+    const rHome=resolveTeam(m,'home'),rAway=resolveTeam(m,'away');
+    html+=`<div class="hist-match-card" style="margin-bottom:12px;border-color:rgba(0,204,102,.35)">
+      <div class="hist-header">
+        <div class="hist-teams">
+          ${flagImg(rHome)} <div class="hist-team-name" style="margin:0 4px">${rHome}</div>
+          <div class="hist-vs">vs</div>
+          ${flagImg(rAway)} <div class="hist-team-name" style="margin:0 4px">${rAway}</div>
+        </div>
+        <div style="text-align:right">
+          <span style="font-size:11px;font-weight:700;letter-spacing:1px;color:var(--green2);animation:cdpulse 1.5s ease infinite">● EN DIRECTO</span>
+          <div class="hist-meta">${m.phase} · ${m.time}</div>
+        </div>
+      </div>
+      <div class="hist-preds">`;
+    const sorted=[...PLAYERS].sort((a,b)=>a===player?-1:b===player?1:0);
+    sorted.forEach(p=>{
+      const pred=(dbPreds[p]||{})[m.id];
+      const pts=res?calcPts(pred,res):null;
+      const isMe=p===player;
+      let ptsClass='pts-gray',predColor='var(--gray2)';
+      if(pred&&res){
+        if(pts>=5){ptsClass='pts-gold';predColor='var(--gold)';}
+        else if(pts>=2){ptsClass='pts-green';predColor='var(--green2)';}
+        else if(pts===1){ptsClass='pts-silver';predColor='var(--silver)';}
+        else{ptsClass='pts-red';predColor='#FC8181';}
+      }
+      html+=`<div class="hist-pred-row${isMe?' me':''}">
+        <div class="hist-pname" style="color:${isMe?'#FB923C':'var(--white)'}">${p}</div>
+        <div class="hist-right">
+          ${pred?`<div class="hist-pred-score" style="color:${predColor}">${pred.predL}–${pred.predV}</div>`:'<div style="font-size:11px;color:var(--gray)">—</div>'}
+          ${pred&&pred.gol?`<div style="font-size:10px;color:var(--gray);max-width:65px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">${pred.gol}</div>`:''}
+          ${res?`<div class="hist-pts ${ptsClass}">${pred?`+${pts}`:'0'}</div>`:''}
+        </div>
+      </div>`;
+    });
+    html+=`</div></div>`;
+  });
+  cont.innerHTML=html;
+}
+
+function updateLiveBadge(){
+  const badge=document.getElementById('liveBadge');
+  if(!badge) return;
+  const n=MATCHES.filter(m=>mStatus(m)==='live').length;
+  badge.style.display=n>0?'block':'none';
+  badge.textContent=n;
+}
+
 // ── RANKING ──────────────────────────────────────────────────────
 let rankTab = 'total';
 
@@ -1906,6 +1969,114 @@ function playerExactosForDay(pid, date){
   }).length;
 }
 
+
+// ── MODAL PREDICCIÓN ─────────────────────────────────────────────
+function openModal(mid){
+  if(!player){showToast('Inicia sesión primero');return;}
+  const m=MATCHES.find(x=>x.id===mid);if(!m)return;
+  if(!isOpen(m)&&!isFuture(m)){showToast('Este partido ya está cerrado');return;}
+  modalMid=mid;
+  const pred=(dbPreds[player]||{})[mid];
+  const st=mDT(m);
+  const dateStr=st.toLocaleDateString('es-ES',{timeZone:'Europe/Madrid',weekday:'short',day:'numeric',month:'short'});
+  const closed=!isOpen(m)&&!isFuture(m);
+  const rHome=resolveTeam(m,'home'), rAway=resolveTeam(m,'away');
+  document.getElementById('mTeams').innerHTML=`
+    ${flagImg(rHome,'modal-flag','modal-flag-ph')}
+    <span style="font-size:12px;color:var(--gray2)">vs</span>
+    ${flagImg(rAway,'modal-flag','modal-flag-ph')}`;
+  document.getElementById('mTitle').textContent=`${rHome} vs ${rAway}`;
+  document.getElementById('mSub').textContent=`${m.phase} · ${dateStr} · ${m.time}`;
+  document.getElementById('mHome').textContent=rHome;
+  document.getElementById('mAway').textContent=rAway;
+  document.getElementById('mPL').value=pred?.predL??'';
+  document.getElementById('mPV').value=pred?.predV??'';
+  document.getElementById('mGol').value=pred?.gol??'';
+  const ok=document.getElementById('savedOk');
+  ok.style.display='none';ok.style.color='var(--green2)';ok.textContent='✓ Predicción guardada';
+  document.getElementById('mSaveBtn').style.display='block';
+  document.getElementById('mSaveBtn').textContent='Guardar predicción';
+  document.getElementById('mSaveBtn').disabled=closed;
+  document.getElementById('mPL').disabled=closed;
+  document.getElementById('mPV').disabled=closed;
+  document.getElementById('mGol').disabled=closed;
+  const clearBtn=document.getElementById('mClearBtn');
+  const hasPred=!!(dbPreds[player]&&dbPreds[player][mid]);
+  clearBtn.style.display=(hasPred&&!closed)?'block':'none';
+  document.getElementById('modalOv').classList.add('open');
+  if(window._modalTimer) clearInterval(window._modalTimer);
+  window._modalTimer=setInterval(()=>{
+    const m2=MATCHES.find(x=>x.id===modalMid);
+    if(!m2||!document.getElementById('modalOv').classList.contains('open')){clearInterval(window._modalTimer);return;}
+    if(!isOpen(m2)&&!isFuture(m2)){
+      clearInterval(window._modalTimer);
+      document.getElementById('mPL').disabled=true;
+      document.getElementById('mPV').disabled=true;
+      document.getElementById('mGol').disabled=true;
+      document.getElementById('mSaveBtn').style.display='none';
+      const ok2=document.getElementById('savedOk');
+      ok2.style.display='block';ok2.style.color='var(--red)';
+      ok2.textContent='⛔ Partido iniciado — predicción bloqueada';
+      showToast('⛔ El partido ha empezado');
+    }
+  },10000);
+}
+
+function closeModal(e){
+  if(e&&e.target!==document.getElementById('modalOv')) return;
+  document.getElementById('modalOv').classList.remove('open');
+  if(window._modalTimer){clearInterval(window._modalTimer);window._modalTimer=null;}
+  modalMid=null;
+}
+
+async function savePred(){
+  const mCheck=MATCHES.find(x=>x.id===modalMid);
+  if(mCheck&&!isOpen(mCheck)&&!isFuture(mCheck)){
+    document.getElementById('mSaveBtn').style.display='none';
+    document.getElementById('mPL').disabled=true;
+    document.getElementById('mPV').disabled=true;
+    document.getElementById('mGol').disabled=true;
+    const ok=document.getElementById('savedOk');
+    ok.style.display='block';ok.style.color='var(--red)';
+    ok.textContent='⛔ Partido iniciado — predicción bloqueada';
+    return;
+  }
+  const pL=document.getElementById('mPL').value,pV=document.getElementById('mPV').value;
+  const gol=document.getElementById('mGol').value.trim();
+  if(pL===''||pV===''){showToast('Pon el resultado antes de guardar');return;}
+  const data={predL:parseInt(pL),predV:parseInt(pV),gol};
+  if(!dbPreds[player])dbPreds[player]={};
+  dbPreds[player][modalMid]=data;
+  if(window.FB_READY) await window.FB.update(fbPath('predictions/'+player),{[modalMid]:data});
+  else localSet('fm_pred_'+player,dbPreds[player]);
+  const ok=document.getElementById('savedOk');
+  ok.style.display='block';ok.style.color='var(--green2)';ok.textContent='✓ Predicción guardada';
+  document.getElementById('mSaveBtn').textContent='✓ Guardado';
+  document.getElementById('mSaveBtn').disabled=true;
+  document.getElementById('mClearBtn').style.display='none';
+  showToast('Predicción guardada ✓');renderAll();
+  setTimeout(()=>{document.getElementById('modalOv').classList.remove('open');modalMid=null;},1100);
+}
+
+async function clearPred(){
+  if(!player||!modalMid) return;
+  const m=MATCHES.find(x=>x.id===modalMid);
+  if(!m||!isOpen(m)){showToast('No se puede borrar — partido ya iniciado');return;}
+  if(!dbPreds[player]||!dbPreds[player][modalMid]){showToast('No hay predicción que borrar');return;}
+  delete dbPreds[player][modalMid];
+  if(window.FB_READY) await window.FB.update(fbPath('predictions/'+player),{[modalMid]:null});
+  else localSet('fm_pred_'+player,dbPreds[player]);
+  document.getElementById('mPL').value='';
+  document.getElementById('mPV').value='';
+  document.getElementById('mGol').value='';
+  const ok=document.getElementById('savedOk');
+  ok.style.display='block';ok.style.color='var(--gray2)';ok.textContent='✓ Predicción eliminada';
+  document.getElementById('mSaveBtn').textContent='Guardar predicción';
+  document.getElementById('mSaveBtn').disabled=false;
+  document.getElementById('mClearBtn').style.display='none';
+  showToast('Predicción eliminada');renderAll();
+  setTimeout(()=>{document.getElementById('modalOv').classList.remove('open');modalMid=null;},900);
+}
 
 // ── ADMIN ────────────────────────────────────────────────────────
 function onAdminMatch(){
