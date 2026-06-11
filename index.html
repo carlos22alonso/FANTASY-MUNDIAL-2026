@@ -745,8 +745,12 @@ body::after{
             <input class="ri" type="number" min="0" max="20" id="adminRV" placeholder="0">
           </div>
           <div style="margin-top:10px">
-            <div class="res-lbl">Goleador real</div>
-            <input class="gi" type="text" id="adminGol" placeholder="Nombre del goleador...">
+            <div class="res-lbl">Goleadores reales (hasta 5)</div>
+            <input class="gi" type="text" id="adminGol"  placeholder="Goleador 1..." style="margin-bottom:5px">
+            <input class="gi" type="text" id="adminGol2" placeholder="Goleador 2 (opcional)..." style="margin-bottom:5px">
+            <input class="gi" type="text" id="adminGol3" placeholder="Goleador 3 (opcional)..." style="margin-bottom:5px">
+            <input class="gi" type="text" id="adminGol4" placeholder="Goleador 4 (opcional)..." style="margin-bottom:5px">
+            <input class="gi" type="text" id="adminGol5" placeholder="Goleador 5 (opcional)...">
           </div>
         </div>
         <button class="btn-blue" onclick="saveResult()">Guardar resultado</button>
@@ -1183,7 +1187,9 @@ function calcPts(pred,res){
   let pts=0;
   if(pL===rL&&pV===rV) pts+=5;
   else if(Math.sign(pL-pV)===Math.sign(rL-rV)) pts+=(pL-pV)===(rL-rV)?2:1;
-  if(pG&&rG&&pG.trim().toLowerCase()===rG.trim().toLowerCase()) pts+=3;
+  // Check goleador against array (goles) or single (gol) for backward compat
+  const rGoles = res.goles && res.goles.length ? res.goles : (rG ? [rG] : []);
+  if(pG && rGoles.some(g=>g.trim().toLowerCase()===pG.trim().toLowerCase())) pts+=3;
   return pts;
 }
 function playerPts(pid){
@@ -1213,7 +1219,9 @@ function playerGoleadoresForJornada(pid, jornadaId){
   if(!j) return 0;
   return j.matchIds.filter(mid=>{
     const p=(dbPreds[pid]||{})[mid],r=dbResults[mid];
-    return p&&r&&p.gol&&r.gol&&p.gol.trim().toLowerCase()===r.gol.trim().toLowerCase();
+    if(!p||!r||!p.gol) return false;
+    const rGoles=r.goles&&r.goles.length?r.goles:(r.gol?[r.gol]:[]);
+    return rGoles.some(g=>g.trim().toLowerCase()===p.gol.trim().toLowerCase());
   }).length;
 }
 function playerGanadoresForJornada(pid, jornadaId){
@@ -1235,7 +1243,9 @@ function playerExactos(pid){
 function playerGoleadores(pid){
   return Object.keys(dbPreds[pid]||{}).filter(mid=>{
     const p=dbPreds[pid][mid],r=dbResults[mid];
-    return r&&p&&p.gol&&r.gol&&p.gol.trim().toLowerCase()===r.gol.trim().toLowerCase();
+    if(!p||!r||!p.gol) return false;
+    const rGoles=r.goles&&r.goles.length?r.goles:(r.gol?[r.gol]:[]);
+    return rGoles.some(g=>g.trim().toLowerCase()===p.gol.trim().toLowerCase());
   }).length;
 }
 function playerGanadores(pid){
@@ -1787,7 +1797,7 @@ function renderHistory(){
           </div>
           <div style="text-align:right">
             <div class="hist-result">${res.rL}–${res.rV}</div>
-            ${res.gol?`<div class="hist-meta">Goleador: ${res.gol}</div>`:''}
+            ${(res.goles&&res.goles.length?res.goles:[res.gol]).filter(Boolean).length?`<div class="hist-meta">Goles: ${(res.goles&&res.goles.length?res.goles:[res.gol]).filter(Boolean).join(', ')}</div>`:''}
           </div>
         </div>
         <div class="hist-preds">`;
@@ -2087,16 +2097,28 @@ function onAdminMatch(){
   const res=dbResults[mid];
   document.getElementById('adminRL').value=res?.rL??'';
   document.getElementById('adminRV').value=res?.rV??'';
-  document.getElementById('adminGol').value=res?.gol??'';
+  const goles=res?.goles||[];
+  document.getElementById('adminGol').value=goles[0]||res?.gol||'';
+  document.getElementById('adminGol2').value=goles[1]||'';
+  document.getElementById('adminGol3').value=goles[2]||'';
+  document.getElementById('adminGol4').value=goles[3]||'';
+  document.getElementById('adminGol5').value=goles[4]||'';
   document.getElementById('adminMatchInfo').style.display='block';
 }
 async function saveResult(){
   const mid=parseInt(document.getElementById('adminMatchSel').value);
   const rL=document.getElementById('adminRL').value,rV=document.getElementById('adminRV').value;
-  const gol=document.getElementById('adminGol').value.trim();
   if(!mid){showToast('Selecciona un partido');return;}
   if(rL===''||rV===''){showToast('Introduce el resultado');return;}
-  const data={rL:parseInt(rL),rV:parseInt(rV),gol};
+  const goles=[
+    document.getElementById('adminGol').value.trim(),
+    document.getElementById('adminGol2').value.trim(),
+    document.getElementById('adminGol3').value.trim(),
+    document.getElementById('adminGol4').value.trim(),
+    document.getElementById('adminGol5').value.trim(),
+  ].filter(g=>g.length>0);
+  const gol=goles[0]||''; // backward compat
+  const data={rL:parseInt(rL),rV:parseInt(rV),gol,goles};
   dbResults[mid]=data;
   if(window.FB_READY) await window.FB.update(fbPath('results'),{[mid]:data});
   else localSet('fm_res_'+mid,data);
