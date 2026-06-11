@@ -745,12 +745,14 @@ body::after{
             <input class="ri" type="number" min="0" max="20" id="adminRV" placeholder="0">
           </div>
           <div style="margin-top:10px">
-            <div class="res-lbl">Goleadores reales (hasta 5)</div>
+            <div class="res-lbl">Goleadores reales (hasta 7)</div>
             <input class="gi" type="text" id="adminGol"  placeholder="Goleador 1..." style="margin-bottom:5px">
             <input class="gi" type="text" id="adminGol2" placeholder="Goleador 2 (opcional)..." style="margin-bottom:5px">
             <input class="gi" type="text" id="adminGol3" placeholder="Goleador 3 (opcional)..." style="margin-bottom:5px">
             <input class="gi" type="text" id="adminGol4" placeholder="Goleador 4 (opcional)..." style="margin-bottom:5px">
-            <input class="gi" type="text" id="adminGol5" placeholder="Goleador 5 (opcional)...">
+            <input class="gi" type="text" id="adminGol5" placeholder="Goleador 5 (opcional)..." style="margin-bottom:5px">
+            <input class="gi" type="text" id="adminGol6" placeholder="Goleador 6 (opcional)..." style="margin-bottom:5px">
+            <input class="gi" type="text" id="adminGol7" placeholder="Goleador 7 (opcional)...">
           </div>
         </div>
         <button class="btn-blue" onclick="saveResult()">Guardar resultado</button>
@@ -2103,6 +2105,8 @@ function onAdminMatch(){
   document.getElementById('adminGol3').value=goles[2]||'';
   document.getElementById('adminGol4').value=goles[3]||'';
   document.getElementById('adminGol5').value=goles[4]||'';
+  document.getElementById('adminGol6').value=goles[5]||'';
+  document.getElementById('adminGol7').value=goles[6]||'';
   document.getElementById('adminMatchInfo').style.display='block';
 }
 async function saveResult(){
@@ -2116,6 +2120,8 @@ async function saveResult(){
     document.getElementById('adminGol3').value.trim(),
     document.getElementById('adminGol4').value.trim(),
     document.getElementById('adminGol5').value.trim(),
+    document.getElementById('adminGol6').value.trim(),
+    document.getElementById('adminGol7').value.trim(),
   ].filter(g=>g.length>0);
   const gol=goles[0]||''; // backward compat
   const data={rL:parseInt(rL),rV:parseInt(rV),gol,goles};
