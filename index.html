@@ -746,13 +746,13 @@ body::after{
           </div>
           <div style="margin-top:10px">
             <div class="res-lbl">Goleadores reales (hasta 7)</div>
-            <input class="gi" type="text" id="adminGol"  placeholder="Goleador 1..." style="margin-bottom:5px">
-            <input class="gi" type="text" id="adminGol2" placeholder="Goleador 2 (opcional)..." style="margin-bottom:5px">
-            <input class="gi" type="text" id="adminGol3" placeholder="Goleador 3 (opcional)..." style="margin-bottom:5px">
-            <input class="gi" type="text" id="adminGol4" placeholder="Goleador 4 (opcional)..." style="margin-bottom:5px">
-            <input class="gi" type="text" id="adminGol5" placeholder="Goleador 5 (opcional)..." style="margin-bottom:5px">
-            <input class="gi" type="text" id="adminGol6" placeholder="Goleador 6 (opcional)..." style="margin-bottom:5px">
-            <input class="gi" type="text" id="adminGol7" placeholder="Goleador 7 (opcional)...">
+            <select class="res-sel" id="adminGol"  style="margin-bottom:5px;font-size:12px"><option value="">— Goleador 1 —</option></select>
+            <select class="res-sel" id="adminGol2" style="margin-bottom:5px;font-size:12px"><option value="">— Goleador 2 (opcional) —</option></select>
+            <select class="res-sel" id="adminGol3" style="margin-bottom:5px;font-size:12px"><option value="">— Goleador 3 (opcional) —</option></select>
+            <select class="res-sel" id="adminGol4" style="margin-bottom:5px;font-size:12px"><option value="">— Goleador 4 (opcional) —</option></select>
+            <select class="res-sel" id="adminGol5" style="margin-bottom:5px;font-size:12px"><option value="">— Goleador 5 (opcional) —</option></select>
+            <select class="res-sel" id="adminGol6" style="margin-bottom:5px;font-size:12px"><option value="">— Goleador 6 (opcional) —</option></select>
+            <select class="res-sel" id="adminGol7" style="font-size:12px"><option value="">— Goleador 7 (opcional) —</option></select>
           </div>
         </div>
         <button class="btn-blue" onclick="saveResult()">Guardar resultado</button>
@@ -2155,13 +2155,32 @@ function onAdminMatch(){
   document.getElementById('adminRL').value=res?.rL??'';
   document.getElementById('adminRV').value=res?.rV??'';
   const goles=res?.goles||[];
-  document.getElementById('adminGol').value=goles[0]||res?.gol||'';
-  document.getElementById('adminGol2').value=goles[1]||'';
-  document.getElementById('adminGol3').value=goles[2]||'';
-  document.getElementById('adminGol4').value=goles[3]||'';
-  document.getElementById('adminGol5').value=goles[4]||'';
-  document.getElementById('adminGol6').value=goles[5]||'';
-  document.getElementById('adminGol7').value=goles[6]||'';
+  // Build player list from both teams
+  const rHome=resolveTeam(m,'home'), rAway=resolveTeam(m,'away');
+  const homePlayers=GROUP_TEAMS[rHome]||[];
+  const awayPlayers=GROUP_TEAMS[rAway]||[];
+  function buildAdminGolSel(selId, savedVal, labelEmpty) {
+    const sel=document.getElementById(selId);
+    if(!sel) return;
+    sel.innerHTML=`<option value="">${labelEmpty}</option>`;
+    if(homePlayers.length){
+      const og=document.createElement('optgroup');og.label='🏠 '+rHome;
+      homePlayers.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;if(p===savedVal)o.selected=true;og.appendChild(o);});
+      sel.appendChild(og);
+    }
+    if(awayPlayers.length){
+      const og2=document.createElement('optgroup');og2.label='✈️ '+rAway;
+      awayPlayers.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;if(p===savedVal)o.selected=true;og2.appendChild(o);});
+      sel.appendChild(og2);
+    }
+  }
+  buildAdminGolSel('adminGol',  goles[0]||res?.gol||'','— Goleador 1 —');
+  buildAdminGolSel('adminGol2', goles[1]||'','— Goleador 2 (opcional) —');
+  buildAdminGolSel('adminGol3', goles[2]||'','— Goleador 3 (opcional) —');
+  buildAdminGolSel('adminGol4', goles[3]||'','— Goleador 4 (opcional) —');
+  buildAdminGolSel('adminGol5', goles[4]||'','— Goleador 5 (opcional) —');
+  buildAdminGolSel('adminGol6', goles[5]||'','— Goleador 6 (opcional) —');
+  buildAdminGolSel('adminGol7', goles[6]||'','— Goleador 7 (opcional) —');
   document.getElementById('adminMatchInfo').style.display='block';
 }
 async function saveResult(){
