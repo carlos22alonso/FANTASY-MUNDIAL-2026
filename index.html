@@ -2025,7 +2025,7 @@ function playerExactosForDay(pid, date){
 function openModal(mid){
   if(!player){showToast('Inicia sesión primero');return;}
   const m=MATCHES.find(x=>x.id===mid);if(!m)return;
-  if(!isOpen(m)&&!isFuture(m)){showToast('Este partido ya está cerrado');return;}
+  if(mStatus(m)!=='open'){showToast('Este partido ya está cerrado o en juego');return;}
   modalMid=mid;
   const pred=(dbPreds[player]||{})[mid];
   const st=mDT(m);
