@@ -1202,13 +1202,10 @@ function localSet(k,v){ try{localStorage.setItem(k,JSON.stringify(v));}catch(e){
 // HORA MADRID
 // ════════════════════════════════════════════════════════════════════
 function mDT(m) {
-  const naive = new Date(`${m.date}T${m.time}:00Z`);
-  const s = naive.toLocaleString('en-US',{timeZone:'Europe/Madrid',year:'numeric',month:'2-digit',day:'2-digit',hour:'2-digit',minute:'2-digit',second:'2-digit',hour12:false});
-  const mt = s.match(/(\d+)\/(\d+)\/(\d+),?\s+(\d+):(\d+):(\d+)/);
-  if(!mt) return naive;
-  const [,,,,h,mi]=mt.map(Number);
-  const [wH,wM]=m.time.split(':').map(Number);
-  return new Date(naive.getTime()+((wH*60+wM)-(h*60+mi))*60000);
+  // Madrid summer time (CEST) = UTC+2
+  const [year,month,day] = m.date.split('-').map(Number);
+  const [hour,min] = m.time.split(':').map(Number);
+  return new Date(Date.UTC(year, month-1, day, hour-2, min, 0));
 }
 function mStatus(m){ const n=new Date(),s=mDT(m),e=new Date(s.getTime()+105*60000); return n<s?'open':n<e?'live':'closed'; }
 function isOpen(m){ return mStatus(m)==='open'; }
@@ -1229,7 +1226,11 @@ function calcPts(pred,res){
   else if(Math.sign(pL-pV)===Math.sign(rL-rV)) pts+=(pL-pV)===(rL-rV)?2:1;
   // Check goleador against array (goles) or single (gol) for backward compat
   const rGoles = res.goles && res.goles.length ? res.goles : (rG ? [rG] : []);
-  if(pG && rGoles.some(g=>g.trim().toLowerCase()===pG.trim().toLowerCase())) pts+=3;
+  // Special 0-0 case: only give goleador pts if pred was ALSO 0-0
+  const isZeroZero = res.rL===0 && res.rV===0;
+  const predWasZeroZero = pL===0 && pV===0;
+  if(isZeroZero && predWasZeroZero && pG && pG.trim()==='0-0') pts+=3;
+  else if(!isZeroZero && pG && rGoles.some(g=>g.trim().toLowerCase()===pG.trim().toLowerCase())) pts+=3;
   return pts;
 }
 function playerPts(pid){
@@ -2043,7 +2044,7 @@ function openModal(mid){
   document.getElementById('mPV').value=pred?.predV??'';
   // Populate goleador select with both teams' players
   const golSel = document.getElementById('mGol');
-  golSel.innerHTML = '<option value="">— Sin goleador —</option>';
+  golSel.innerHTML = '<option value="">— Sin goleador —</option><option value="0-0" style="color:#AAB4CC">0-0 (Sin goleador)</option>';
   const homePlayers = GROUP_TEAMS[rHome] || [];
   const awayPlayers = GROUP_TEAMS[rAway] || [];
   if(homePlayers.length) {
@@ -2070,6 +2071,19 @@ function openModal(mid){
   const clearBtn=document.getElementById('mClearBtn');
   const hasPred=!!(dbPreds[player]&&dbPreds[player][mid]);
   clearBtn.style.display=(hasPred&&!closed)?'block':'none';
+  // Auto-handle 0-0: hide goleador select if both scores are 0
+  function checkZeroZero(){
+    const vL=parseInt(document.getElementById('mPL').value)||0;
+    const vV=parseInt(document.getElementById('mPV').value)||0;
+    const golSel=document.getElementById('mGol');
+    const golLbl=document.querySelector('.gol-lbl');
+    const isZZ=vL===0&&vV===0;
+    golSel.style.display=isZZ?'none':'block';
+    if(golLbl) golLbl.style.display=isZZ?'none':'block';
+  }
+  document.getElementById('mPL').addEventListener('input', checkZeroZero);
+  document.getElementById('mPV').addEventListener('input', checkZeroZero);
+  checkZeroZero();
   document.getElementById('modalOv').classList.add('open');
   if(window._modalTimer) clearInterval(window._modalTimer);
   window._modalTimer=setInterval(()=>{
@@ -2109,8 +2123,9 @@ async function savePred(){
     return;
   }
   const pL=document.getElementById('mPL').value,pV=document.getElementById('mPV').value;
-  const gol=document.getElementById('mGol').value.trim();
+  let gol=document.getElementById('mGol').value.trim();
   if(pL===''||pV===''){showToast('Pon el resultado antes de guardar');return;}
+  if(parseInt(pL)===0&&parseInt(pV)===0) gol='0-0';
   const data={predL:parseInt(pL),predV:parseInt(pV),gol};
   if(!dbPreds[player])dbPreds[player]={};
   dbPreds[player][modalMid]=data;
@@ -2162,7 +2177,7 @@ function onAdminMatch(){
   function buildAdminGolSel(selId, savedVal, labelEmpty) {
     const sel=document.getElementById(selId);
     if(!sel) return;
-    sel.innerHTML=`<option value="">${labelEmpty}</option>`;
+    sel.innerHTML=`<option value="">${labelEmpty}</option><option value="0-0" style="color:#AAB4CC">0-0 (Sin goleador)</option>`;
     if(homePlayers.length){
       const og=document.createElement('optgroup');og.label='🏠 '+rHome;
       homePlayers.forEach(p=>{const o=document.createElement('option');o.value=p;o.textContent=p;if(p===savedVal)o.selected=true;og.appendChild(o);});
@@ -2181,6 +2196,23 @@ function onAdminMatch(){
   buildAdminGolSel('adminGol5', goles[4]||'','— Goleador 5 (opcional) —');
   buildAdminGolSel('adminGol6', goles[5]||'','— Goleador 6 (opcional) —');
   buildAdminGolSel('adminGol7', goles[6]||'','— Goleador 7 (opcional) —');
+  // If existing result is 0-0, auto-set goleador 1 to 0-0 and disable the rest
+  function adminCheckZeroZero(){
+    const rL=parseInt(document.getElementById('adminRL').value)||0;
+    const rV=parseInt(document.getElementById('adminRV').value)||0;
+    const isZZ=rL===0&&rV===0;
+    const g1=document.getElementById('adminGol');
+    if(isZZ){ g1.value='0-0'; }
+    ['adminGol','adminGol2','adminGol3','adminGol4','adminGol5','adminGol6','adminGol7'].forEach((id,i)=>{
+      const el=document.getElementById(id);
+      if(!el) return;
+      el.disabled=isZZ&&i>0;
+      el.style.opacity=isZZ&&i>0?'0.3':'';
+    });
+  }
+  document.getElementById('adminRL').onchange=adminCheckZeroZero;
+  document.getElementById('adminRV').onchange=adminCheckZeroZero;
+  adminCheckZeroZero();
   document.getElementById('adminMatchInfo').style.display='block';
 }
 async function saveResult(){
@@ -2188,7 +2220,7 @@ async function saveResult(){
   const rL=document.getElementById('adminRL').value,rV=document.getElementById('adminRV').value;
   if(!mid){showToast('Selecciona un partido');return;}
   if(rL===''||rV===''){showToast('Introduce el resultado');return;}
-  const goles=[
+  let goles=[
     document.getElementById('adminGol').value.trim(),
     document.getElementById('adminGol2').value.trim(),
     document.getElementById('adminGol3').value.trim(),
@@ -2197,6 +2229,7 @@ async function saveResult(){
     document.getElementById('adminGol6').value.trim(),
     document.getElementById('adminGol7').value.trim(),
   ].filter(g=>g.length>0);
+  if(parseInt(rL)===0&&parseInt(rV)===0) goles=['0-0'];
   const gol=goles[0]||''; // backward compat
   const data={rL:parseInt(rL),rV:parseInt(rV),gol,goles};
   dbResults[mid]=data;
