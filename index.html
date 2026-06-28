@@ -1420,7 +1420,7 @@ function setAdminTab(t){
 }
 
 // ── CUADRO FINAL ───────────────────────────────────────────────
-const ALL_TEAMS = Object.values(GROUP_TEAMS).flat().sort();
+const ALL_TEAMS = Object.keys(GROUP_TEAMS).sort();
 
 function renderBracket(){
   const cont = document.getElementById('bracketList');
