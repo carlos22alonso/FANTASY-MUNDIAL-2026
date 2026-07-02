@@ -2060,6 +2060,10 @@ function openModal(mid){
     golSel.appendChild(og2);
   }
   golSel.value = pred?.gol ?? '';
+  // Always show goleador by default — checkZeroZero will hide if needed
+  golSel.style.display = 'block';
+  const golLbl2 = document.querySelector('.gol-lbl');
+  if(golLbl2) golLbl2.style.display = 'block';
   const ok=document.getElementById('savedOk');
   ok.style.display='none';ok.style.color='var(--green2)';ok.textContent='✓ Predicción guardada';
   document.getElementById('mSaveBtn').style.display='block';
@@ -2073,8 +2077,12 @@ function openModal(mid){
   clearBtn.style.display=(hasPred&&!closed)?'block':'none';
   // Auto-handle 0-0: hide goleador select if both scores are 0
   function checkZeroZero(){
-    const vL=parseInt(document.getElementById('mPL').value)||0;
-    const vV=parseInt(document.getElementById('mPV').value)||0;
+    const rawL=document.getElementById('mPL').value;
+    const rawV=document.getElementById('mPV').value;
+    // Only hide goleador if BOTH fields are explicitly set to 0
+    if(rawL===''||rawV==='') return;
+    const vL=parseInt(rawL);
+    const vV=parseInt(rawV);
     const golSel=document.getElementById('mGol');
     const golLbl=document.querySelector('.gol-lbl');
     const isZZ=vL===0&&vV===0;
